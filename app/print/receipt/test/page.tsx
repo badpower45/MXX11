@@ -25,7 +25,7 @@ export default async function ReceiptPrintTestPage({
       <ThermalReceipt
         autoprint={query.autoprint === '1'}
         testMode
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         receiptHeader={settings?.receiptHeader ?? shop.name}
         receiptFooter={
           settings?.receiptFooter ?? 'Printer test page for thermal alignment and cashier training.'
@@ -44,7 +44,7 @@ export default async function ReceiptPrintTestPage({
           id: 'thermal-print-test',
           saleNumber,
           receiptNumber,
-          paymentMethod: 'Cash',
+          paymentMethod: 'كاش',
           cashierName: 'Printer Test',
           customerEmail: null,
           customerBusinessName: null,
@@ -68,7 +68,7 @@ export default async function ReceiptPrintTestPage({
           payments: [
             {
               id: 'cash',
-              method: 'Cash',
+              method: 'كاش',
               amount: '210.00',
               referenceNumber: null,
               createdAt: now.toISOString()

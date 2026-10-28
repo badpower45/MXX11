@@ -47,7 +47,7 @@ export default async function ParkedSalesPage() {
       />
       <ParkedSalesManager
         initialParkedSales={parkedSales.map(serializeParkedSale)}
-        currencySymbol={settings?.currencySymbol ?? '₱'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         currentUserId={userId}
         role={role}
       />

@@ -4,6 +4,7 @@ import SaleAdjustmentManager from '@/components/sales/SaleAdjustmentManager';
 import { requirePagePermission } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { saleDetailInclude, serializeSaleDetail } from '@/lib/sale-adjustments';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function SaleRefundPage({
   params
@@ -12,6 +13,8 @@ export default async function SaleRefundPage({
 }) {
   const { id } = await params;
   const { shopId, session } = await requirePagePermission('REFUND_SALES');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   const [sale, settings, products] = await Promise.all([
     prisma.sale.findFirst({
@@ -49,8 +52,8 @@ export default async function SaleRefundPage({
   return (
     <div className="space-y-6">
       <AppHeader
-        title={`Refund / Exchange ${sale.saleNumber}`}
-        subtitle="Process full refunds, partial refunds, damaged returns, and exchanges with manager approval and a printable adjustment receipt."
+        title={t('adjustmentManager.refundTitle', { saleNumber: sale.saleNumber })}
+        subtitle={t('adjustmentManager.refundSubtitle')}
       />
 
       <SaleAdjustmentManager
@@ -61,7 +64,7 @@ export default async function SaleRefundPage({
           price: product.price.toString()
         }))}
         taxRate={Number(settings?.taxRate ?? 0)}
-        currencySymbol={settings?.currencySymbol ?? '₱'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         currentUserEmail={session.user.email ?? ''}
       />
     </div>

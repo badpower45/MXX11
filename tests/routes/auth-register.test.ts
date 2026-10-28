@@ -78,7 +78,7 @@ describe('POST /api/auth/register', () => {
     txTokenCreate.mockResolvedValue({ id: 'verify-1' });
   });
 
-  it('returns 503 when signup email delivery is not configured', async () => {
+  it('returns 201 when signup email delivery is not configured', async () => {
     isMailConfigured.mockReturnValue(false);
 
     const { POST } = await import('@/app/api/auth/register/route');
@@ -95,7 +95,7 @@ describe('POST /api/auth/register', () => {
       })
     );
 
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(201);
   });
 
   it('returns 409 when the email already exists', async () => {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
 import { openCashDrawer } from '@/lib/cash-drawer';
 import { dateTime, money, shortDate } from '@/lib/format';
+import { useLocalizedPath } from '@/lib/i18n/client';
 
 type ReceiptWidth = '58mm' | '80mm';
 
@@ -141,6 +142,12 @@ function buildBrandMark(name: string) {
   );
 }
 
+const INSTALLMENT_METHODS = ['امان', 'مايلو', 'موجو', 'فاليو', 'كونتاكت'];
+
+function checkIsInstallment(method: string, payments: ReceiptPayment[] = []) {
+  return false;
+}
+
 export default function ThermalReceipt({
   sale,
   shop,
@@ -165,7 +172,13 @@ export default function ThermalReceipt({
   cashDrawerKickEnabled?: boolean;
   autoprint?: boolean;
   testMode?: boolean;
+  isCreditSale?: boolean; // backwards compatibility
 }) {
+  const lp = useLocalizedPath();
+  const isInstallment = useMemo(
+    () => checkIsInstallment(sale.paymentMethod, sale.payments),
+    [sale.paymentMethod, sale.payments]
+  );
   const paperWidth = receiptWidth === '58mm' ? '58mm' : '80mm';
   const compact = paperWidth === '58mm' || printerSafeMode;
   const brandMark = useMemo(
@@ -263,6 +276,16 @@ export default function ThermalReceipt({
         <Button type="button" onClick={() => window.print()}>
           {testMode ? 'Print test page' : 'Print receipt'}
         </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="bg-stone-800 hover:bg-stone-900 text-white font-bold border border-stone-850"
+          onClick={() => {
+            window.location.href = lp('/checkout');
+          }}
+        >
+          خروج والعودة للبيع / Exit
+        </Button>
         {cashDrawerKickEnabled ? (
           <Button type="button" variant="secondary" onClick={handleDrawerKick} disabled={drawerBusy}>
             {drawerBusy ? 'Triggering drawer…' : 'Open cash drawer'}
@@ -276,8 +299,8 @@ export default function ThermalReceipt({
               drawerMessage.toLowerCase().includes('rejected')
                 ? 'border border-red-200 bg-red-50 text-red-800'
                 : drawerMessage.toLowerCase().includes('fallback')
-                  ? 'border border-amber-200 bg-amber-50 text-amber-800'
-                  : 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+                  ? 'border border-sky-200 bg-sky-50 text-sky-800'
+                  : 'border border-blue-200 bg-blue-50 text-blue-800'
             }`}
           >
             {drawerMessage}
@@ -375,15 +398,19 @@ export default function ThermalReceipt({
           ) : null}
         </div>
 
+
+
         <div className="space-y-2 border-b border-dashed border-stone-300 py-4">
           {sale.items.map((item) => (
             <div key={item.id} className={compact ? 'text-[10px]' : 'text-[11px]'}>
               <div className="font-medium text-stone-900">{item.productName}</div>
               <div className="mt-1 flex justify-between gap-3 text-stone-600">
                 <span>
-                  {item.qty} x {money(item.unitPrice, currencySymbol)}
+                  {isInstallment ? `${item.qty} x تقسيط` : `${item.qty} x ${money(item.unitPrice, currencySymbol)}`}
                 </span>
-                <span className="text-right">{money(item.lineTotal, currencySymbol)}</span>
+                <span className="text-right">
+                  {isInstallment ? 'تقسيط' : money(item.lineTotal, currencySymbol)}
+                </span>
               </div>
             </div>
           ))}
@@ -394,28 +421,37 @@ export default function ThermalReceipt({
             compact ? 'text-[10px]' : 'text-[11px]'
           } text-stone-700`}
         >
-          <div className="flex justify-between">
-            <span>Subtotal</span>
-            <span>{money(sale.subtotal, currencySymbol)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Tax</span>
-            <span>{money(sale.taxAmount, currencySymbol)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span>Discount</span>
-            <span>-{money(sale.discountAmount, currencySymbol)}</span>
-          </div>
-          {Number(sale.loyaltyDiscountAmount) > 0 ? (
-            <div className="flex justify-between">
-              <span>Loyalty discount</span>
-              <span>-{money(sale.loyaltyDiscountAmount, currencySymbol)}</span>
+          {isInstallment ? (
+            <div className="flex justify-between pt-2 text-sm font-black text-stone-900">
+              <span>طريقة الدفع</span>
+              <span>تقسيط ({sale.paymentMethod})</span>
             </div>
-          ) : null}
-          <div className="flex justify-between pt-2 text-sm font-black text-stone-900">
-            <span>Total</span>
-            <span>{money(sale.totalAmount, currencySymbol)}</span>
-          </div>
+          ) : (
+            <>
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>{money(sale.subtotal, currencySymbol)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tax</span>
+                <span>{money(sale.taxAmount, currencySymbol)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Discount</span>
+                <span>-{money(sale.discountAmount, currencySymbol)}</span>
+              </div>
+              {Number(sale.loyaltyDiscountAmount) > 0 ? (
+                <div className="flex justify-between">
+                  <span>Loyalty discount</span>
+                  <span>-{money(sale.loyaltyDiscountAmount, currencySymbol)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between pt-2 text-sm font-black text-stone-900">
+                <span>Total</span>
+                <span>{money(sale.totalAmount, currencySymbol)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {sale.loyaltyPointsEarned > 0 || sale.loyaltyPointsRedeemed > 0 ? (
@@ -440,40 +476,42 @@ export default function ThermalReceipt({
           </div>
         ) : null}
 
-        <div
-          className={`space-y-2 border-b border-dashed border-stone-300 py-4 ${
-            compact ? 'text-[10px]' : 'text-[11px]'
-          } text-stone-700`}
-        >
-          <div className="font-semibold text-stone-900">Payment summary</div>
-          {sale.payments.map((payment) => (
-            <div key={payment.id} className="rounded-2xl border border-stone-200 px-3 py-2">
-              <div className="flex justify-between gap-3">
-                <span>{payment.method}</span>
-                <span className="text-right">{money(payment.amount, currencySymbol)}</span>
+        {!isInstallment ? (
+          <div
+            className={`space-y-2 border-b border-dashed border-stone-300 py-4 ${
+              compact ? 'text-[10px]' : 'text-[11px]'
+            } text-stone-700`}
+          >
+            <div className="font-semibold text-stone-900">Payment summary</div>
+            {sale.payments.map((payment) => (
+              <div key={payment.id} className="rounded-2xl border border-stone-200 px-3 py-2">
+                <div className="flex justify-between gap-3">
+                  <span>{payment.method}</span>
+                  <span className="text-right">{money(payment.amount, currencySymbol)}</span>
+                </div>
+                {payment.referenceNumber ? (
+                  <div className="mt-1 text-stone-500">Ref: {payment.referenceNumber}</div>
+                ) : null}
               </div>
-              {payment.referenceNumber ? (
-                <div className="mt-1 text-stone-500">Ref: {payment.referenceNumber}</div>
-              ) : null}
-            </div>
-          ))}
-          <div className="flex justify-between">
-            <span>Paid total</span>
-            <span>{money(sale.totalPaid, currencySymbol)}</span>
-          </div>
-          {Number(sale.cashReceived) > 0 ? (
+            ))}
             <div className="flex justify-between">
-              <span>Cash received</span>
-              <span>{money(sale.cashReceived, currencySymbol)}</span>
+              <span>Paid total</span>
+              <span>{money(sale.totalPaid, currencySymbol)}</span>
             </div>
-          ) : null}
-          {Number(sale.changeDue) > 0 ? (
-            <div className="flex justify-between font-semibold text-emerald-700">
-              <span>Change due</span>
-              <span>{money(sale.changeDue, currencySymbol)}</span>
-            </div>
-          ) : null}
-        </div>
+            {Number(sale.cashReceived) > 0 ? (
+              <div className="flex justify-between">
+                <span>Cash received</span>
+                <span>{money(sale.cashReceived, currencySymbol)}</span>
+              </div>
+            ) : null}
+            {Number(sale.changeDue) > 0 ? (
+              <div className="flex justify-between font-semibold text-blue-700">
+                <span>Change due</span>
+                <span>{money(sale.changeDue, currencySymbol)}</span>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
 
         <div
           className={`border-b border-dashed border-stone-300 py-4 text-center ${

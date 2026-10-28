@@ -1,4 +1,5 @@
 import { buildVariantLabel } from '@/lib/product-merchandising';
+import { useTranslations } from '@/lib/i18n/client';
 
 const CODE39_MAP: Record<string, string> = {
   '0': 'nnnwwnwnn',
@@ -156,12 +157,13 @@ export default function BarcodeLabelPreview({
   sku?: string | null;
   size?: BarcodeLabelSize;
 }) {
+  const t = useTranslations('productManager');
   const normalized = sanitizeCode(code ?? '');
 
   if (!normalized) {
     return (
       <div className="rounded-[22px] border border-dashed border-stone-300 bg-stone-50 p-4 text-sm text-stone-500">
-        Add a barcode to preview and print labels.
+        {t('addBarcodeToPreview')}
       </div>
     );
   }

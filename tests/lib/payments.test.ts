@@ -7,53 +7,55 @@ import {
 } from '@/lib/payments';
 
 describe('payments', () => {
-  it('requires references for card, e-wallet, and bank transfer payments', () => {
-    expect(requiresReferenceNumber('Cash')).toBe(false);
-    expect(requiresReferenceNumber('Card')).toBe(true);
-    expect(requiresReferenceNumber('E-Wallet')).toBe(true);
-    expect(requiresReferenceNumber('Bank Transfer')).toBe(true);
+  it('requires references for non-cash payments', () => {
+    expect(requiresReferenceNumber('كاش')).toBe(false);
+    expect(requiresReferenceNumber('فيزا')).toBe(true);
+    expect(requiresReferenceNumber('مايلو')).toBe(true);
+    expect(requiresReferenceNumber('محفظه الكترونيه')).toBe(true);
   });
 
   it('normalizes payment input amounts and empty references', () => {
     expect(
       normalizePaymentInput({
-        method: 'Cash',
+        method: 'كاش',
         amount: 100.456,
         referenceNumber: '   '
       })
     ).toEqual({
-      method: 'Cash',
+      method: 'كاش',
       amount: 100.46,
-      referenceNumber: null
+      referenceNumber: null,
+      pullAmount: null,
+      adminFees: 0
     });
   });
 
-  it('rejects missing bank transfer references', () => {
+  it('rejects missing reference numbers for non-cash payments', () => {
     const result = validatePaymentsForSale(500, [
-      { method: 'Bank Transfer', amount: 500, referenceNumber: null }
+      { method: 'فيزا', amount: 500, referenceNumber: null }
     ]);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe('Bank Transfer payments require a reference number.');
+      expect(result.error).toBe('فيزا payments require a reference number.');
     }
   });
 
   it('rejects duplicate non-cash references for the same payment method', () => {
     const result = validatePaymentsForSale(500, [
-      { method: 'Card', amount: 250, referenceNumber: 'ABC123' },
-      { method: 'Card', amount: 250, referenceNumber: 'abc123' }
+      { method: 'فيزا', amount: 250, referenceNumber: 'ABC123' },
+      { method: 'فيزا', amount: 250, referenceNumber: 'abc123' }
     ]);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe('Duplicate card reference numbers are not allowed in one sale.');
+      expect(result.error).toBe('Duplicate فيزا reference numbers are not allowed in one sale.');
     }
   });
 
   it('allows cash overpayment while returning change', () => {
     const result = validatePaymentsForSale(500, [
-      { method: 'Cash', amount: 1000, referenceNumber: null }
+      { method: 'كاش', amount: 1000, referenceNumber: null }
     ]);
 
     expect(result.ok).toBe(true);
@@ -65,7 +67,7 @@ describe('payments', () => {
 
   it('blocks non-cash overpayment', () => {
     const result = validatePaymentsForSale(500, [
-      { method: 'Card', amount: 600, referenceNumber: 'CARD-1' }
+      { method: 'فيزا', amount: 600, referenceNumber: 'CARD-1' }
     ]);
 
     expect(result.ok).toBe(false);
@@ -76,8 +78,8 @@ describe('payments', () => {
 
   it('summarizes mixed cash and non-cash tenders correctly', () => {
     const summary = getPaymentSummary(500, [
-      { method: 'Cash', amount: 300, referenceNumber: null },
-      { method: 'Card', amount: 200, referenceNumber: 'CARD-2' }
+      { method: 'كاش', amount: 300, referenceNumber: null },
+      { method: 'فيزا', amount: 200, referenceNumber: 'CARD-2' }
     ]);
 
     expect(summary).toEqual({

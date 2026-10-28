@@ -3,8 +3,8 @@ import { roundCurrency } from '@/lib/inventory';
 
 export const TAX_MODE_OPTIONS = ['EXCLUSIVE', 'INCLUSIVE', 'NON_TAXABLE'] as const;
 export const PRINTER_CONNECTION_OPTIONS = ['USB', 'NETWORK', 'BLUETOOTH', 'MANUAL'] as const;
-export const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Card'];
-export const DEFAULT_TIMEZONE = 'Asia/Manila';
+export const DEFAULT_PAYMENT_METHODS: PaymentMethod[] = ['كاش', 'فيزا', 'مايلو', 'فاليو', 'امان', 'محفظه الكترونيه'];
+export const DEFAULT_TIMEZONE = 'Africa/Cairo';
 export const DEFAULT_OFFLINE_STOCK_MAX_AGE_MINUTES = 240;
 export const DEFAULT_REORDER_SAFETY_STOCK = 3;
 

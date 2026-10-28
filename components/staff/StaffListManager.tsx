@@ -9,6 +9,7 @@ import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import { dateTime, shortDate } from '@/lib/format';
 import { SerializedStaffListItem } from '@/lib/serializers/staff';
+import { useLocalizedPath, useTranslations } from '@/lib/i18n/client';
 
 type ManagedShop = {
   id: string;
@@ -17,7 +18,7 @@ type ManagedShop = {
 };
 
 const selectClassName =
-  'h-11 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 text-sm text-stone-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] outline-none transition hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10';
+  'h-11 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 text-sm text-stone-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] outline-none transition hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10';
 
 function roleTone(role: ShopRole) {
   switch (role) {
@@ -30,6 +31,10 @@ function roleTone(role: ShopRole) {
   }
 }
 
+function roleLabel(role: ShopRole, t: (key: string, params?: Record<string, string | number>) => string) {
+  return t(`roles.${role}`);
+}
+
 export default function StaffListManager({
   initialItems,
   shops,
@@ -39,6 +44,8 @@ export default function StaffListManager({
   shops: ManagedShop[];
   defaultShopId: string;
 }) {
+  const t = useTranslations('staff');
+  const lp = useLocalizedPath();
   const [items, setItems] = useState(initialItems);
   const [query, setQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
@@ -93,17 +100,21 @@ export default function StaffListManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to update staff status.' }));
+    const data = await response.json().catch(() => ({ error: t('errors.updateStatus') }));
     setLoadingId(null);
 
     if (!response.ok || !data?.item) {
-      setError(data?.error ?? 'Unable to update staff status.');
+      setError(data?.error ?? t('errors.updateStatus'));
       return;
     }
 
     setItems((current) => current.map((entry) => (entry.id === item.id ? data.item : entry)));
     setSuccess(
-      `${data.item.name} is now ${data.item.isActive ? 'active' : 'inactive'} in ${data.item.shopName}.`
+      t('statusUpdated', {
+        name: data.item.name,
+        status: data.item.isActive ? t('status.active') : t('status.inactive'),
+        shop: data.item.shopName
+      })
     );
   }
 
@@ -112,25 +123,23 @@ export default function StaffListManager({
       <Card>
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Staff operations</div>
-            <h2 className="mt-2 text-2xl font-black text-stone-950">Team access at a glance</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-              Search staff, review role and shop assignment, and quickly activate or deactivate access without leaving the workspace.
-            </p>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{t('hero.tag')}</div>
+            <h2 className="mt-2 text-2xl font-black text-stone-950">{t('hero.title')}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">{t('hero.subtitle')}</p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Active</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{t('stats.active')}</div>
               <div className="mt-1 text-2xl font-black text-stone-950">{activeCount}</div>
             </div>
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Inactive</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{t('stats.inactive')}</div>
               <div className="mt-1 text-2xl font-black text-stone-950">{inactiveCount}</div>
             </div>
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Seen this week</div>
-              <div className="mt-1 text-2xl font-black text-emerald-700">{recentlySeenCount}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{t('stats.seenThisWeek')}</div>
+              <div className="mt-1 text-2xl font-black text-blue-700">{recentlySeenCount}</div>
             </div>
           </div>
         </div>
@@ -139,18 +148,18 @@ export default function StaffListManager({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search name, email, role, or shop..."
+            placeholder={t('filters.searchPlaceholder')}
           />
 
           <select className={selectClassName} value={roleFilter} onChange={(event) => setRoleFilter(event.target.value)}>
-            <option value="">All roles</option>
-            <option value="ADMIN">Admin</option>
-            <option value="MANAGER">Manager</option>
-            <option value="CASHIER">Cashier</option>
+            <option value="">{t('filters.allRoles')}</option>
+            <option value="ADMIN">{roleLabel('ADMIN', t)}</option>
+            <option value="MANAGER">{roleLabel('MANAGER', t)}</option>
+            <option value="CASHIER">{roleLabel('CASHIER', t)}</option>
           </select>
 
           <select className={selectClassName} value={shopFilter} onChange={(event) => setShopFilter(event.target.value)}>
-            <option value="">All managed shops</option>
+            <option value="">{t('filters.allShops')}</option>
             {shops.map((shop) => (
               <option key={shop.id} value={shop.id}>
                 {shop.name}
@@ -159,9 +168,9 @@ export default function StaffListManager({
           </select>
 
           <select className={selectClassName} value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="">All statuses</option>
-            <option value="active">Active only</option>
-            <option value="inactive">Inactive only</option>
+            <option value="">{t('filters.allStatuses')}</option>
+            <option value="active">{t('filters.activeOnly')}</option>
+            <option value="inactive">{t('filters.inactiveOnly')}</option>
           </select>
         </div>
 
@@ -170,7 +179,7 @@ export default function StaffListManager({
         ) : null}
 
         {success ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
             {success}
           </div>
         ) : null}
@@ -179,15 +188,15 @@ export default function StaffListManager({
       <Card>
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Staff directory</div>
-            <h2 className="mt-2 text-xl font-black text-stone-950">Assignments and access</h2>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">{t('directory.tag')}</div>
+            <h2 className="mt-2 text-xl font-black text-stone-950">{t('directory.title')}</h2>
             <p className="mt-1 text-sm text-stone-500">
-              {filteredItems.length} record(s) matched the current filters.
+              {t('directory.matches', { count: filteredItems.length })}
             </p>
           </div>
 
-          <Link href="/staff/new">
-            <Button>Add staff account</Button>
+          <Link href={lp('/staff/new')}>
+            <Button>{t('directory.addStaff')}</Button>
           </Link>
         </div>
 
@@ -196,26 +205,26 @@ export default function StaffListManager({
             <table className="min-w-full text-left text-sm">
               <thead className="bg-stone-50 text-stone-500">
                 <tr>
-                  <th className="px-4 py-3.5">Staff</th>
-                  <th className="px-4 py-3.5">Role</th>
-                  <th className="px-4 py-3.5">Shop</th>
-                  <th className="px-4 py-3.5">Status</th>
-                  <th className="px-4 py-3.5">Assigned</th>
-                  <th className="px-4 py-3.5">Last login</th>
-                  <th className="px-4 py-3.5">Actions</th>
+                  <th className="px-4 py-3.5">{t('table.staff')}</th>
+                  <th className="px-4 py-3.5">{t('table.role')}</th>
+                  <th className="px-4 py-3.5">{t('table.shop')}</th>
+                  <th className="px-4 py-3.5">{t('table.status')}</th>
+                  <th className="px-4 py-3.5">{t('table.assigned')}</th>
+                  <th className="px-4 py-3.5">{t('table.lastLogin')}</th>
+                  <th className="px-4 py-3.5">{t('table.actions')}</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredItems.map((item) => (
                   <tr key={item.id} className="border-t border-stone-200 bg-white transition hover:bg-stone-50/70">
                     <td className="px-4 py-4">
-                      <Link href={`/staff/${item.id}`} className="font-semibold text-emerald-700">
+                      <Link href={lp(`/staff/${item.id}`)} className="font-semibold text-blue-700">
                         {item.name}
                       </Link>
                       <div className="mt-1 text-xs text-stone-500">{item.email}</div>
                     </td>
                     <td className="px-4 py-4">
-                      <Badge tone={roleTone(item.role)}>{item.role}</Badge>
+                      <Badge tone={roleTone(item.role)}>{roleLabel(item.role, t)}</Badge>
                     </td>
                     <td className="px-4 py-4">
                       <div className="font-medium text-stone-900">{item.shopName}</div>
@@ -223,17 +232,17 @@ export default function StaffListManager({
                     </td>
                     <td className="px-4 py-4">
                       <Badge tone={item.isActive ? 'emerald' : 'red'}>
-                        {item.isActive ? 'Active' : 'Inactive'}
+                        {item.isActive ? t('status.active') : t('status.inactive')}
                       </Badge>
                     </td>
                     <td className="px-4 py-4 text-stone-600">{shortDate(item.assignedAt)}</td>
                     <td className="px-4 py-4 text-stone-600">
-                      {item.lastLogin ? dateTime(item.lastLogin) : 'Never'}
+                      {item.lastLogin ? dateTime(item.lastLogin) : t('table.never')}
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
-                        <Link href={`/staff/${item.id}`}>
-                          <Button type="button" variant="secondary">Open</Button>
+                        <Link href={lp(`/staff/${item.id}`)}>
+                          <Button type="button" variant="secondary">{t('table.open')}</Button>
                         </Link>
                         <Button
                           type="button"
@@ -242,10 +251,10 @@ export default function StaffListManager({
                           disabled={loadingId === item.id}
                         >
                           {loadingId === item.id
-                            ? 'Saving...'
+                            ? t('table.saving')
                             : item.isActive
-                              ? 'Deactivate'
-                              : 'Activate'}
+                              ? t('table.deactivate')
+                              : t('table.activate')}
                         </Button>
                       </div>
                     </td>
@@ -257,7 +266,7 @@ export default function StaffListManager({
 
           {!filteredItems.length ? (
             <div className="border-t border-stone-200 bg-stone-50 px-6 py-10 text-center text-sm text-stone-500">
-              No staff matched that search. Adjust the filters or create a new account.
+              {t('empty')}
             </div>
           ) : null}
         </div>

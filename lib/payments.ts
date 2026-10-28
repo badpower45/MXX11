@@ -1,6 +1,17 @@
 import { roundCurrency } from '@/lib/inventory';
+import { PaymentDrawerType } from '@prisma/client';
 
-export const PAYMENT_METHODS = ['Cash', 'Card', 'E-Wallet', 'Bank Transfer'] as const;
+export const PAYMENT_METHODS = [
+  'كاش',
+  'فيزا',
+  'مايلو',
+  'فاليو',
+  'امان',
+  'محفظه الكترونيه',
+  'انستا باي',
+  'موجو',
+  'كونتاكت'
+] as const;
 
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
@@ -8,6 +19,8 @@ export type PaymentInput = {
   method: PaymentMethod;
   amount: number;
   referenceNumber?: string | null;
+  pullAmount?: number | null;
+  adminFees?: number | null;
 };
 
 export type PaymentSummary = {
@@ -18,8 +31,15 @@ export type PaymentSummary = {
   hasCashPayment: boolean;
 };
 
+export function getPaymentDrawerType(method: PaymentMethod): PaymentDrawerType | null {
+  if (method === 'كاش') return PaymentDrawerType.CASH;
+  if (method === 'انستا باي') return PaymentDrawerType.INSTAPAY;
+  if (method === 'محفظه الكترونيه') return PaymentDrawerType.WALLET;
+  return null;
+}
+
 export function requiresReferenceNumber(method: PaymentMethod) {
-  return method === 'Card' || method === 'E-Wallet' || method === 'Bank Transfer';
+  return method !== 'كاش';
 }
 
 function normalizeReferenceNumber(referenceNumber?: string | null) {
@@ -31,7 +51,9 @@ export function normalizePaymentInput(payment: PaymentInput): PaymentInput {
   return {
     method: payment.method,
     amount: roundCurrency(Number(payment.amount ?? 0)),
-    referenceNumber: normalizeReferenceNumber(payment.referenceNumber)
+    referenceNumber: normalizeReferenceNumber(payment.referenceNumber),
+    pullAmount: payment.pullAmount !== undefined && payment.pullAmount !== null ? roundCurrency(Number(payment.pullAmount)) : null,
+    adminFees: payment.adminFees !== undefined && payment.adminFees !== null ? roundCurrency(Number(payment.adminFees)) : 0
   };
 }
 
@@ -42,7 +64,7 @@ export function getPaymentSummary(totalAmount: number, payments: PaymentInput[])
   );
   const cashReceived = roundCurrency(
     normalizedPayments
-      .filter((payment) => payment.method === 'Cash')
+      .filter((payment) => payment.method === 'كاش')
       .reduce((sum, payment) => sum + payment.amount, 0)
   );
   const hasCashPayment = cashReceived > 0;
@@ -96,7 +118,7 @@ export function validatePaymentsForSale(totalAmount: number, payments: PaymentIn
   const summary = getPaymentSummary(totalAmount, normalizedPayments);
   const nonCashTotal = roundCurrency(
     normalizedPayments
-      .filter((payment) => payment.method !== 'Cash')
+      .filter((payment) => payment.method !== 'كاش')
       .reduce((sum, payment) => sum + payment.amount, 0)
   );
 

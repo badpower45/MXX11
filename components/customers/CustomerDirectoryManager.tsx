@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
+import { useTranslations } from '@/lib/i18n/client';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import { dateTime, money, shortDate } from '@/lib/format';
+import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/payments';
 import {
   bucketReceivableAmount,
   calculateCustomerLoyaltyBalance,
@@ -108,7 +110,7 @@ type CustomerForm = {
 type PaymentDraft = {
   customerCreditLedgerId: string;
   amount: string;
-  method: 'Cash' | 'Card' | 'E-Wallet' | 'Bank Transfer';
+  method: PaymentMethod;
   referenceNumber: string;
   paidAt: string;
 };
@@ -150,7 +152,7 @@ function paymentDraftFromCustomer(customer?: CustomerRecord | null): PaymentDraf
   return {
     customerCreditLedgerId: ledger?.id ?? '',
     amount: ledger?.balance ?? '0',
-    method: 'Cash',
+    method: PAYMENT_METHODS[0],
     referenceNumber: '',
     paidAt: new Date().toISOString().slice(0, 10)
   };
@@ -190,6 +192,28 @@ export default function CustomerDirectoryManager({
   customers: CustomerRecord[];
   currencySymbol: string;
 }) {
+  const t = useTranslations('customers');
+
+  const getLocalizedLoyaltyType = (type: string) => {
+    switch (type) {
+      case 'EARNED': return t('earned');
+      case 'REDEEMED': return t('redeemed');
+      case 'ADJUSTED': return t('adjusted');
+      default: return type.replaceAll('_', ' ');
+    }
+  };
+
+  const getLocalizedCreditStatus = (status: string) => {
+    switch (status) {
+      case 'OPEN': return t('statusOpen');
+      case 'PARTIALLY_PAID': return t('statusPartiallyPaid');
+      case 'PAID': return t('statusPaid');
+      case 'OVERDUE': return t('statusOverdue');
+      case 'VOIDED': return t('statusVoided');
+      default: return status.replaceAll('_', ' ');
+    }
+  };
+
   const [records, setRecords] = useState(customers);
   const [selectedId, setSelectedId] = useState<string | null>(customers[0]?.id ?? null);
   const [form, setForm] = useState<CustomerForm>(customers[0] ? formFromCustomer(customers[0]) : blankForm());
@@ -280,11 +304,11 @@ export default function CustomerDirectoryManager({
       body: JSON.stringify(payloadFromForm(form))
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to save customer.' }));
+    const data = await response.json().catch(() => ({ error: t('failedSave') }));
     setSaving(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to save customer.');
+      setError(data.error ?? t('failedSave'));
       return;
     }
 
@@ -292,7 +316,7 @@ export default function CustomerDirectoryManager({
       replaceCustomer(data.customer);
       setForm(formFromCustomer(data.customer));
       setPaymentDraft(paymentDraftFromCustomer(data.customer));
-      setSuccess('Customer updated.');
+      setSuccess(t('customerUpdated'));
       return;
     }
 
@@ -300,7 +324,7 @@ export default function CustomerDirectoryManager({
     setSelectedId(data.customer.id);
     setForm(formFromCustomer(data.customer));
     setPaymentDraft(paymentDraftFromCustomer(data.customer));
-    setSuccess('Customer created.');
+    setSuccess(t('customerCreated'));
   }
 
   async function postPayment() {
@@ -325,85 +349,85 @@ export default function CustomerDirectoryManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to post receivable payment.' }));
+    const data = await response.json().catch(() => ({ error: t('failedPostPayment') }));
     setPostingPayment(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to post receivable payment.');
+      setError(data.error ?? t('failedPostPayment'));
       return;
     }
 
     replaceCustomer(data.customer);
     setPaymentDraft(paymentDraftFromCustomer(data.customer));
-    setSuccess('Receivable payment posted.');
+    setSuccess(t('paymentPostedSuccess'));
   }
 
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card><div className="text-sm text-stone-500">Current</div><div className="mt-2 text-3xl font-black text-stone-900">{money(agingSummary.current, currencySymbol)}</div></Card>
-        <Card><div className="text-sm text-stone-500">1-30 days</div><div className="mt-2 text-3xl font-black text-amber-700">{money(agingSummary.days_1_30, currencySymbol)}</div></Card>
-        <Card><div className="text-sm text-stone-500">31-60 days</div><div className="mt-2 text-3xl font-black text-orange-700">{money(agingSummary.days_31_60, currencySymbol)}</div></Card>
-        <Card><div className="text-sm text-stone-500">61+ days</div><div className="mt-2 text-3xl font-black text-red-700">{money(agingSummary.days_61_plus, currencySymbol)}</div></Card>
+        <Card><div className="text-sm text-stone-500">{t('current')}</div><div className="mt-2 text-3xl font-black text-stone-900">{money(agingSummary.current, currencySymbol)}</div></Card>
+        <Card><div className="text-sm text-stone-500">{t('days_1_30')}</div><div className="mt-2 text-3xl font-black text-sky-700">{money(agingSummary.days_1_30, currencySymbol)}</div></Card>
+        <Card><div className="text-sm text-stone-500">{t('days_31_60')}</div><div className="mt-2 text-3xl font-black text-orange-700">{money(agingSummary.days_31_60, currencySymbol)}</div></Card>
+        <Card><div className="text-sm text-stone-500">{t('days_61_plus')}</div><div className="mt-2 text-3xl font-black text-red-700">{money(agingSummary.days_61_plus, currencySymbol)}</div></Card>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Customer directory</div>
-              <h2 className="mt-2 text-xl font-black text-stone-900">{selectedCustomer ? 'Edit customer' : 'New customer'}</h2>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">{t('directoryTag')}</div>
+              <h2 className="mt-2 text-xl font-black text-stone-900">{selectedCustomer ? t('editCustomer') : t('newCustomer')}</h2>
             </div>
-            <Button type="button" variant="secondary" onClick={startNewCustomer}>New</Button>
+            <Button type="button" variant="secondary" onClick={startNewCustomer}>{t('newButton')}</Button>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <select className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm" value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value as CustomerForm['type'] }))}>
-              <option value="INDIVIDUAL">Individual</option>
-              <option value="BUSINESS">Business</option>
+              <option value="INDIVIDUAL">{t('individual')}</option>
+              <option value="BUSINESS">{t('business')}</option>
             </select>
             <select className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm" value={form.isActive ? 'active' : 'archived'} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.value === 'active' }))}>
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
+              <option value="active">{t('active')}</option>
+              <option value="archived">{t('archived')}</option>
             </select>
-            <Input placeholder="First name" value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} />
-            <Input placeholder="Last name" value={form.lastName} onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} />
-            <Input placeholder="Business name" value={form.businessName} onChange={(event) => setForm((current) => ({ ...current, businessName: event.target.value }))} />
-            <Input placeholder="Contact person" value={form.contactPerson} onChange={(event) => setForm((current) => ({ ...current, contactPerson: event.target.value }))} />
-            <Input placeholder="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-            <Input placeholder="Email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-            <Input placeholder="Tax ID / company reference" value={form.taxId} onChange={(event) => setForm((current) => ({ ...current, taxId: event.target.value }))} />
-            <Input placeholder="Address" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
+            <Input placeholder={t('firstName')} value={form.firstName} onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))} />
+            <Input placeholder={t('lastName')} value={form.lastName} onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))} />
+            <Input placeholder={t('businessName')} value={form.businessName} onChange={(event) => setForm((current) => ({ ...current, businessName: event.target.value }))} />
+            <Input placeholder={t('contactPerson')} value={form.contactPerson} onChange={(event) => setForm((current) => ({ ...current, contactPerson: event.target.value }))} />
+            <Input placeholder={t('phone')} value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+            <Input placeholder={t('email')} value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+            <Input placeholder={t('taxId')} value={form.taxId} onChange={(event) => setForm((current) => ({ ...current, taxId: event.target.value }))} />
+            <Input placeholder={t('address')} value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
           </div>
 
-          <textarea className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10" placeholder="Notes" value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
+          <textarea className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10" placeholder={t('notes')} value={form.notes} onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))} />
 
           {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {success ? <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+          {success ? <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div> : null}
 
           <div className="mt-4 flex gap-2">
             <Button type="button" onClick={() => void saveCustomer()} disabled={saving}>
-              {saving ? 'Saving...' : selectedCustomer ? 'Update customer' : 'Create customer'}
+              {saving ? t('saving') : selectedCustomer ? t('editCustomer') : t('newCustomer')}
             </Button>
-            {selectedCustomer ? <Button type="button" variant="ghost" onClick={startNewCustomer}>Cancel</Button> : null}
+            {selectedCustomer ? <Button type="button" variant="ghost" onClick={startNewCustomer}>{t('cancel')}</Button> : null}
           </div>
         </Card>
 
         <Card>
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Growth view</div>
-              <h2 className="mt-2 text-xl font-black text-stone-900">Customers</h2>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">{t('growthView')}</div>
+              <h2 className="mt-2 text-xl font-black text-stone-900">{t('customersTitle')}</h2>
             </div>
-            <Input placeholder="Search by name, phone, email, business..." value={query} onChange={(event) => setQuery(event.target.value)} />
+            <Input placeholder={t('searchPlaceholder')} value={query} onChange={(event) => setQuery(event.target.value)} />
           </div>
 
           <div className="mb-4 grid gap-3 md:grid-cols-5">
             {topCustomers.map(({ customer, stats }) => (
-              <button key={customer.id} type="button" onClick={() => selectCustomerRecord(customer)} className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-emerald-300">
+              <button key={customer.id} type="button" onClick={() => selectCustomerRecord(customer)} className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-left transition hover:border-blue-300">
                 <div className="truncate font-semibold text-stone-900">{getCustomerDisplayName(customer)}</div>
-                <div className="mt-1 text-xs text-stone-500">{stats.purchaseCount} sale(s)</div>
-                <div className="mt-2 text-xl font-black text-emerald-700">{money(stats.totalSpend, currencySymbol)}</div>
+                <div className="mt-1 text-xs text-stone-500">{t('salesCount', { count: stats.purchaseCount })}</div>
+                <div className="mt-2 text-xl font-black text-blue-700">{money(stats.totalSpend, currencySymbol)}</div>
               </button>
             ))}
           </div>
@@ -412,28 +436,28 @@ export default function CustomerDirectoryManager({
             {filteredCustomers.map((customer) => {
               const stats = getCustomerStats(customer);
               return (
-                <button key={customer.id} type="button" onClick={() => selectCustomerRecord(customer)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedId === customer.id ? 'border-emerald-300 bg-emerald-50/60' : 'border-stone-200 bg-white hover:border-stone-300'}`}>
+                <button key={customer.id} type="button" onClick={() => selectCustomerRecord(customer)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedId === customer.id ? 'border-blue-300 bg-blue-50/60' : 'border-stone-200 bg-white hover:border-stone-300'}`}>
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-semibold text-stone-900">{getCustomerDisplayName(customer)}</div>
-                        <Badge tone={customerTypeTone(customer.type)}>{getCustomerTypeLabel(customer.type)}</Badge>
-                        {!customer.isActive ? <Badge tone="red">Archived</Badge> : null}
+                        <Badge tone={customerTypeTone(customer.type)}>{customer.type === 'BUSINESS' ? t('business') : t('individual')}</Badge>
+                        {!customer.isActive ? <Badge tone="red">{t('archived')}</Badge> : null}
                       </div>
-                      <div className="mt-1 text-sm text-stone-500">{customer.phone || 'No phone'}{customer.email ? ` / ${customer.email}` : ''}</div>
+                      <div className="mt-1 text-sm text-stone-500">{customer.phone || t('noPhone')}{customer.email ? ` / ${customer.email}` : ''}</div>
                     </div>
                     <div className="grid grid-cols-2 gap-3 text-sm lg:min-w-[280px]">
-                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">Spend</div><div className="font-semibold text-stone-900">{money(stats.totalSpend, currencySymbol)}</div></div>
-                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">Points</div><div className="font-semibold text-stone-900">{stats.loyaltyBalance}</div></div>
-                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">Last purchase</div><div className="font-semibold text-stone-900">{stats.lastPurchaseAt ? shortDate(stats.lastPurchaseAt) : 'No sales yet'}</div></div>
-                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">Receivables</div><div className="font-semibold text-stone-900">{money(stats.receivableBalance, currencySymbol)}</div></div>
+                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">{t('spend')}</div><div className="font-semibold text-stone-900">{money(stats.totalSpend, currencySymbol)}</div></div>
+                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">{t('points')}</div><div className="font-semibold text-stone-900">{stats.loyaltyBalance}</div></div>
+                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">{t('lastPurchase')}</div><div className="font-semibold text-stone-900">{stats.lastPurchaseAt ? shortDate(stats.lastPurchaseAt) : t('noSalesYet')}</div></div>
+                      <div><div className="text-xs uppercase tracking-[0.14em] text-stone-400">{t('receivablesStat')}</div><div className="font-semibold text-stone-900">{money(stats.receivableBalance, currencySymbol)}</div></div>
                     </div>
                   </div>
                 </button>
               );
             })}
 
-            {!filteredCustomers.length ? <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">No customers matched that search.</div> : null}
+            {!filteredCustomers.length ? <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">{t('noCustomersMatched')}</div> : null}
           </div>
         </Card>
       </div>
@@ -443,7 +467,7 @@ export default function CustomerDirectoryManager({
           <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-black text-stone-900">{getCustomerDisplayName(selectedCustomer)}</h2>
-              <Badge tone={customerTypeTone(selectedCustomer.type)}>{getCustomerTypeLabel(selectedCustomer.type)}</Badge>
+              <Badge tone={customerTypeTone(selectedCustomer.type)}>{selectedCustomer.type === 'BUSINESS' ? t('business') : t('individual')}</Badge>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
@@ -451,21 +475,21 @@ export default function CustomerDirectoryManager({
                 target="_blank"
                 className="inline-flex h-11 items-center justify-center rounded-2xl border border-stone-200 bg-white px-4 text-sm font-semibold text-stone-800 shadow-[0_12px_24px_-18px_rgba(28,25,23,0.32)] transition duration-200 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-stone-50"
               >
-                Print statement
+                {t('printStatement')}
               </Link>
               <Link
                 href={`/print/customer-statement/${selectedCustomer.id}?openOnly=1`}
                 target="_blank"
-                className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-700/90 bg-[linear-gradient(180deg,#059669,#047857)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(5,150,105,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(5,150,105,0.85)]"
+                className="inline-flex h-11 items-center justify-center rounded-2xl border border-blue-700/90 bg-[linear-gradient(180deg,#2563eb,#1d4ed8)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(37,99,235,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(37,99,235,0.85)]"
               >
-                Print open receivables
+                {t('printOpenReceivables')}
               </Link>
             </div>
           </div>
 
           <div className="grid gap-6 xl:grid-cols-3">
             <div>
-              <div className="mb-3 text-sm font-semibold text-stone-900">Recent sales</div>
+              <div className="mb-3 text-sm font-semibold text-stone-900">{t('recentSales')}</div>
               <div className="space-y-3">
                 {selectedCustomer.sales.length ? selectedCustomer.sales.slice(0, 12).map((sale) => (
                   <div key={sale.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
@@ -476,37 +500,37 @@ export default function CustomerDirectoryManager({
                       </div>
                       <div className="text-right">
                         <div className="font-semibold text-stone-900">{money(sale.totalAmount, currencySymbol)}</div>
-                        {sale.isCreditSale ? <Badge tone="amber">Credit</Badge> : null}
+                        {sale.isCreditSale ? <Badge tone="amber">{t('creditBadge')}</Badge> : null}
                       </div>
                     </div>
                   </div>
-                )) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">No completed sales yet.</div>}
+                )) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">{t('noCompletedSales')}</div>}
               </div>
             </div>
 
             <div>
-              <div className="mb-3 text-sm font-semibold text-stone-900">Loyalty ledger</div>
+              <div className="mb-3 text-sm font-semibold text-stone-900">{t('loyaltyLedger')}</div>
               <div className="space-y-3">
                 {selectedCustomer.loyaltyLedger.length ? selectedCustomer.loyaltyLedger.slice(0, 16).map((entry) => (
                   <div key={entry.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="font-semibold text-stone-900">{getCustomerLoyaltyTypeLabel(entry.type)}</div>
+                        <div className="font-semibold text-stone-900">{getLocalizedLoyaltyType(entry.type)}</div>
                         <div className="text-xs text-stone-500">{dateTime(entry.createdAt)}</div>
                       </div>
                       <div className="text-right">
-                        <div className="font-semibold text-stone-900">{entry.type === 'REDEEMED' ? '-' : '+'}{entry.points} pts</div>
-                        <div className="text-xs text-stone-500">Balance {entry.balanceAfter}</div>
+                        <div className="font-semibold text-stone-900">{entry.type === 'REDEEMED' ? '-' : '+'}{t('pointsValue', { points: entry.points })}</div>
+                        <div className="text-xs text-stone-500">{t('pointsBalance', { balance: entry.balanceAfter })}</div>
                       </div>
                     </div>
                     {entry.note ? <div className="mt-2 text-sm text-stone-600">{entry.note}</div> : null}
                   </div>
-                )) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">No loyalty activity yet.</div>}
+                )) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">{t('noLoyaltyActivity')}</div>}
               </div>
             </div>
 
             <div>
-              <div className="mb-3 text-sm font-semibold text-stone-900">Receivables</div>
+              <div className="mb-3 text-sm font-semibold text-stone-900">{t('receivables')}</div>
               <div className="space-y-3">
                 {selectedCustomer.creditLedgers.length ? selectedCustomer.creditLedgers.map((ledger) => {
                   const status = normalizeCustomerCreditStatus(ledger.status, ledger.dueDate, Number(ledger.balance));
@@ -514,51 +538,50 @@ export default function CustomerDirectoryManager({
                     <div key={ledger.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <div className="font-semibold text-stone-900">{ledger.sale?.saleNumber ?? 'Credit sale'}</div>
-                          <div className="text-xs text-stone-500">Due {shortDate(ledger.dueDate)}</div>
+                          <div className="font-semibold text-stone-900">{ledger.sale?.saleNumber ?? t('creditSale')}</div>
+                          <div className="text-xs text-stone-500">{t('dueLabel', { date: shortDate(ledger.dueDate) })}</div>
                         </div>
-                        <Badge tone={customerCreditStatusTone(status)}>{getCustomerCreditStatusLabel(status)}</Badge>
+                        <Badge tone={customerCreditStatusTone(status)}>{getLocalizedCreditStatus(status)}</Badge>
                       </div>
-                      <div className="mt-3 flex justify-between text-sm"><span>Original</span><span className="font-semibold text-stone-900">{money(ledger.originalAmount, currencySymbol)}</span></div>
-                      <div className="mt-1 flex justify-between text-sm"><span>Balance</span><span className="font-semibold text-stone-900">{money(ledger.balance, currencySymbol)}</span></div>
+                      <div className="mt-3 flex justify-between text-sm"><span>{t('original')}</span><span className="font-semibold text-stone-900">{money(ledger.originalAmount, currencySymbol)}</span></div>
+                      <div className="mt-1 flex justify-between text-sm"><span>{t('balance')}</span><span className="font-semibold text-stone-900">{money(ledger.balance, currencySymbol)}</span></div>
                       <div className="mt-3 space-y-2">
                         {ledger.payments.map((payment) => (
                           <div key={payment.id} className="rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700">
                             <div className="flex justify-between gap-3"><span>{payment.method}</span><span>{money(payment.amount, currencySymbol)}</span></div>
-                            <div className="mt-1 text-xs text-stone-500">{shortDate(payment.paidAt)} by {payment.createdByUser.name ?? payment.createdByUser.email}</div>
+                            <div className="mt-1 text-xs text-stone-500">{t('paidByLabel', { date: shortDate(payment.paidAt), user: payment.createdByUser.name ?? payment.createdByUser.email })}</div>
                           </div>
                         ))}
                       </div>
                     </div>
                   );
-                }) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">No receivables posted for this customer.</div>}
+                }) : <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-6 text-sm text-stone-500">{t('noReceivables')}</div>}
               </div>
 
               {selectedCustomer.creditLedgers.some((ledger) => Number(ledger.balance) > 0) ? (
                 <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-stone-900">Post receivable payment</div>
+                  <div className="text-sm font-semibold text-stone-900">{t('postPaymentTitle')}</div>
                   <div className="mt-3 grid gap-3">
                     <select className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm" value={paymentDraft.customerCreditLedgerId} onChange={(event) => {
                       const ledger = selectedCustomer.creditLedgers.find((entry) => entry.id === event.target.value);
                       setPaymentDraft((current) => ({ ...current, customerCreditLedgerId: event.target.value, amount: ledger?.balance ?? current.amount }));
                     }}>
                       {selectedCustomer.creditLedgers.filter((ledger) => Number(ledger.balance) > 0).map((ledger) => (
-                        <option key={ledger.id} value={ledger.id}>{ledger.sale?.saleNumber ?? 'Credit sale'} / {money(ledger.balance, currencySymbol)}</option>
+                        <option key={ledger.id} value={ledger.id}>{ledger.sale?.saleNumber ?? t('creditSale')} / {money(ledger.balance, currencySymbol)}</option>
                       ))}
                     </select>
                     <Input type="number" step="0.01" value={paymentDraft.amount} onChange={(event) => setPaymentDraft((current) => ({ ...current, amount: event.target.value }))} />
                     <select className="rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm" value={paymentDraft.method} onChange={(event) => setPaymentDraft((current) => ({ ...current, method: event.target.value as PaymentDraft['method'] }))}>
-                      <option value="Cash">Cash</option>
-                      <option value="Card">Card</option>
-                      <option value="E-Wallet">E-Wallet</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
+                      {PAYMENT_METHODS.map((method) => (
+                        <option key={method} value={method}>{method}</option>
+                      ))}
                     </select>
-                    <Input placeholder="Reference number" value={paymentDraft.referenceNumber} onChange={(event) => setPaymentDraft((current) => ({ ...current, referenceNumber: event.target.value }))} />
+                    <Input placeholder={t('refNum')} value={paymentDraft.referenceNumber} onChange={(event) => setPaymentDraft((current) => ({ ...current, referenceNumber: event.target.value }))} />
                     <Input type="date" value={paymentDraft.paidAt} onChange={(event) => setPaymentDraft((current) => ({ ...current, paidAt: event.target.value }))} />
                   </div>
                   <div className="mt-4">
                     <Button type="button" onClick={() => void postPayment()} disabled={postingPayment}>
-                      {postingPayment ? 'Posting...' : 'Post payment'}
+                      {postingPayment ? t('posting') : t('postPaymentBtn')}
                     </Button>
                   </div>
                 </div>

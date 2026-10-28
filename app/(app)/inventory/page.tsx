@@ -7,11 +7,14 @@ import { ensureInventoryReasons } from '@/lib/inventory-reasons';
 import { getSmartReorderSuggestions } from '@/lib/owner-analytics';
 import { prisma } from '@/lib/prisma';
 import { ensureUnitsOfMeasure } from '@/lib/uom';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function InventoryPage() {
   const { shopId } = await requirePagePermission('ADJUST_INVENTORY');
   const reasons = await ensureInventoryReasons(shopId);
   await ensureUnitsOfMeasure(shopId);
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   const [settings, products, movements, batches, reorderSuggestions] = await Promise.all([
     prisma.shopSetting.findUnique({ where: { shopId } }),
@@ -66,20 +69,20 @@ export default async function InventoryPage() {
   ]);
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-6xl w-full space-y-6">
       <AppHeader
-        title="Inventory"
-        subtitle="Review stock health, use counts, transfers, and supplier returns for normal workflows, and reserve stock corrections for exceptional write-offs or opening-balance fixes."
+        title={t('inventory.title')}
+        subtitle={t('inventory.subtitle')}
         actions={
           <>
-            <Link href="/stock-counts">
+            <Link href={locale === 'ar' ? '/ar/stock-counts' : '/stock-counts'}>
               <Button type="button" variant="secondary">
-                Open stock counts
+                {t('inventory.openStockCounts')}
               </Button>
             </Link>
             <Link href="/api/inventory/export">
               <Button type="button" variant="secondary">
-                Export inventory CSV
+                {t('inventory.exportCSV')}
               </Button>
             </Link>
           </>
@@ -92,9 +95,16 @@ export default async function InventoryPage() {
           name: product.name,
           sku: product.sku,
           barcode: product.barcode,
-          stockQty: product.stockQty,
-          reorderPoint: product.reorderPoint,
-          baseUnitOfMeasure: product.baseUnitOfMeasure,
+          stockQty: Number(product.stockQty),
+          reorderPoint: Number(product.reorderPoint),
+          baseUnitOfMeasure: product.baseUnitOfMeasure
+            ? {
+                id: product.baseUnitOfMeasure.id,
+                code: product.baseUnitOfMeasure.code,
+                name: product.baseUnitOfMeasure.name,
+                isBase: product.baseUnitOfMeasure.isBase
+              }
+            : null,
           variants: product.variants.map((variant) => ({
             id: variant.id,
             color: variant.color,
@@ -107,8 +117,13 @@ export default async function InventoryPage() {
           uomConversions: product.uomConversions.map((conversion) => ({
             id: conversion.id,
             unitOfMeasureId: conversion.unitOfMeasureId,
-            ratioToBase: conversion.ratioToBase,
-            unitOfMeasure: conversion.unitOfMeasure
+            ratioToBase: parseFloat(conversion.ratioToBase.toString()),
+            unitOfMeasure: {
+              id: conversion.unitOfMeasure.id,
+              code: conversion.unitOfMeasure.code,
+              name: conversion.unitOfMeasure.name,
+              isBase: conversion.unitOfMeasure.isBase
+            }
           })),
           trackBatches: product.trackBatches,
           trackExpiry: product.trackExpiry,
@@ -116,7 +131,7 @@ export default async function InventoryPage() {
             id: batch.id,
             lotNumber: batch.lotNumber,
             expiryDate: batch.expiryDate?.toISOString() ?? null,
-            quantity: batch.quantity
+            quantity: Number(batch.quantity)
           })),
           isActive: product.isActive
         }))}
@@ -129,7 +144,7 @@ export default async function InventoryPage() {
           id: batch.id,
           lotNumber: batch.lotNumber,
           expiryDate: batch.expiryDate?.toISOString() ?? null,
-          quantity: batch.quantity,
+          quantity: Number(batch.quantity),
           receivedAt: batch.receivedAt.toISOString(),
           notes: batch.notes,
           product: {
@@ -143,7 +158,7 @@ export default async function InventoryPage() {
         movements={movements.map((movement) => ({
           id: movement.id,
           type: movement.type,
-          qtyChange: movement.qtyChange,
+          qtyChange: Number(movement.qtyChange),
           referenceId: movement.referenceId,
           notes: movement.notes,
           reasonLabel: movement.reason?.label ?? null,
@@ -157,7 +172,7 @@ export default async function InventoryPage() {
           }
         }))}
         lowStockThreshold={settings?.lowStockThreshold ?? 5}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         reorderSuggestions={reorderSuggestions}
         inventoryFeatures={{
           batchTrackingEnabled: settings?.batchTrackingEnabled ?? false,

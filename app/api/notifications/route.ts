@@ -6,18 +6,23 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   try {
-    const { shopId } = await getActiveShopContextOrThrow();
+    const { shopId, userId } = await getActiveShopContextOrThrow();
     await ensureOperationalNotifications(shopId);
+
+    const userCondition = {
+      shopId,
+      OR: [{ userId: null }, { userId }]
+    };
 
     const [notifications, unreadCount] = await Promise.all([
       prisma.notification.findMany({
-        where: { shopId },
+        where: userCondition,
         orderBy: { createdAt: 'desc' },
         take: 12
       }),
       prisma.notification.count({
         where: {
-          shopId,
+          ...userCondition,
           isRead: false
         }
       })
@@ -41,11 +46,12 @@ export async function GET() {
 
 export async function PATCH() {
   try {
-    const { shopId } = await getActiveShopContextOrThrow();
+    const { shopId, userId } = await getActiveShopContextOrThrow();
 
     await prisma.notification.updateMany({
       where: {
         shopId,
+        OR: [{ userId: null }, { userId }],
         isRead: false
       },
       data: {

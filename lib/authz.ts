@@ -6,8 +6,15 @@ import {
   ShopContextError
 } from '@/lib/auth/get-active-shop';
 import type { PermissionKey } from '@/lib/permissions';
+import { getServerLocale } from '@/lib/i18n/server';
+import { localizePath } from '@/lib/i18n/locales';
+
+async function redirectToLocale(path: string) {
+  redirect(localizePath(path, await getServerLocale()));
+}
 
 const ROLE_WEIGHT: Record<ShopRole, number> = {
+  STOCK_COUNTER: 0,
   CASHIER: 1,
   MANAGER: 2,
   ADMIN: 3
@@ -44,15 +51,20 @@ export async function requirePageRole(minRole: ShopRole) {
     return await requireRole(minRole);
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      redirect('/login');
+      await redirectToLocale('/login');
     }
 
     if (error instanceof ShopContextError) {
-      redirect(error.code === 'SHOP_ACCESS_LOST' ? '/login?error=shop-access-lost' : '/onboard');
+      await redirectToLocale(error.code === 'SHOP_ACCESS_LOST' ? '/login?error=shop-access-lost' : '/onboard');
     }
 
     if (error instanceof AuthorizationError) {
-      redirect('/dashboard');
+      const context = await getActiveShopContextOrThrow().catch(() => null);
+      if (context?.role === 'STOCK_COUNTER') {
+        await redirectToLocale('/stock-counts');
+      } else {
+        await redirectToLocale('/dashboard');
+      }
     }
 
     throw error;
@@ -64,15 +76,20 @@ export async function requirePagePermission(permission: PermissionKey, minRole: 
     return await requirePermission(permission, minRole);
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      redirect('/login');
+      await redirectToLocale('/login');
     }
 
     if (error instanceof ShopContextError) {
-      redirect(error.code === 'SHOP_ACCESS_LOST' ? '/login?error=shop-access-lost' : '/onboard');
+      await redirectToLocale(error.code === 'SHOP_ACCESS_LOST' ? '/login?error=shop-access-lost' : '/onboard');
     }
 
     if (error instanceof AuthorizationError) {
-      redirect('/dashboard');
+      const context = await getActiveShopContextOrThrow().catch(() => null);
+      if (context?.role === 'STOCK_COUNTER') {
+        await redirectToLocale('/stock-counts');
+      } else {
+        await redirectToLocale('/dashboard');
+      }
     }
 
     throw error;

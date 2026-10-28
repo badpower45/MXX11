@@ -73,7 +73,6 @@ export async function PATCH(
 ) {
   try {
     const { shopId, userId } = await requirePermission('EDIT_PRODUCTS');
-    const units = await ensureUnitsOfMeasure(shopId);
     const { id } = await params;
     const body = await request.json();
     const parsed = productUpdateSchema.safeParse({ ...body, id });
@@ -85,8 +84,18 @@ export async function PATCH(
       );
     }
 
+    const activeShop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, linkedShopId: true }
+    });
+
+    const allowedShopIds = [shopId];
+    if (activeShop?.linkedShopId) {
+      allowedShopIds.push(activeShop.linkedShopId);
+    }
+
     const existing = await prisma.product.findFirst({
-      where: { id, shopId },
+      where: { id, shopId: { in: allowedShopIds } },
       include: {
         category: {
           select: {
@@ -106,6 +115,9 @@ export async function PATCH(
     if (!existing) {
       return NextResponse.json({ error: 'Product not found.' }, { status: 404 });
     }
+
+    const targetShopId = existing.shopId;
+    const units = await ensureUnitsOfMeasure(targetShopId);
 
     const nextName = parsed.data.name?.trim() ?? existing.name;
     const nextBaseUnitId = parsed.data.baseUnitOfMeasureId ?? existing.baseUnitOfMeasureId;
@@ -130,6 +142,7 @@ export async function PATCH(
             barcode: variant.barcode,
             priceOverride: variant.priceOverride ? Number(variant.priceOverride) : null,
             costOverride: variant.costOverride ? Number(variant.costOverride) : null,
+            stockQty: variant.stockQty,
             isActive: variant.isActive
           }))
         : parsed.data.variants.map((variant) => ({
@@ -141,6 +154,7 @@ export async function PATCH(
             barcode: normalizeText(variant.barcode),
             priceOverride: variant.priceOverride ?? null,
             costOverride: variant.costOverride ?? null,
+            stockQty: variant.stockQty,
             isActive: variant.isActive
           }));
     const nextImages =
@@ -208,13 +222,13 @@ export async function PATCH(
     const [category, duplicateByName, duplicateBySku, duplicateByBarcode, duplicateVariantSku, duplicateVariantBarcode, productSkuConflictWithVariant, productBarcodeConflictWithVariant] = await Promise.all([
       nextCategoryId
         ? prisma.category.findFirst({
-            where: { id: nextCategoryId, shopId, isActive: true },
+            where: { id: nextCategoryId, shopId: targetShopId, isActive: true },
             select: { id: true }
           })
         : Promise.resolve(null),
       prisma.product.findFirst({
         where: {
-          shopId,
+          shopId: targetShopId,
           id: { not: id },
           name: {
             equals: nextName,
@@ -225,13 +239,13 @@ export async function PATCH(
       }),
       nextSku
         ? prisma.product.findFirst({
-            where: { shopId, id: { not: id }, sku: nextSku },
+            where: { shopId: targetShopId, id: { not: id }, sku: nextSku },
             select: { id: true }
           })
         : Promise.resolve(null),
       nextBarcode
         ? prisma.product.findFirst({
-            where: { shopId, id: { not: id }, barcode: nextBarcode },
+            where: { shopId: targetShopId, id: { not: id }, barcode: nextBarcode },
             select: { id: true }
           })
         : Promise.resolve(null),
@@ -240,7 +254,7 @@ export async function PATCH(
             where: {
               sku: { in: variantSkus },
               product: {
-                shopId,
+                shopId: targetShopId,
                 id: { not: id }
               }
             },
@@ -252,7 +266,7 @@ export async function PATCH(
             where: {
               barcode: { in: variantBarcodes },
               product: {
-                shopId,
+                shopId: targetShopId,
                 id: { not: id }
               }
             },
@@ -262,7 +276,7 @@ export async function PATCH(
       variantSkus.length
         ? prisma.product.findFirst({
             where: {
-              shopId,
+              shopId: targetShopId,
               id: { not: id },
               sku: { in: variantSkus }
             },
@@ -272,7 +286,7 @@ export async function PATCH(
       variantBarcodes.length
         ? prisma.product.findFirst({
             where: {
-              shopId,
+              shopId: targetShopId,
               id: { not: id },
               barcode: { in: variantBarcodes }
             },
@@ -332,7 +346,7 @@ export async function PATCH(
 
         await logActivity({
           tx,
-          shopId,
+          shopId: targetShopId,
           userId,
           action: 'PRODUCT_PRICE_CHANGED',
           entityType: 'Product',
@@ -360,7 +374,7 @@ export async function PATCH(
 
         await logActivity({
           tx,
-          shopId,
+          shopId: targetShopId,
           userId,
           action: 'PRODUCT_COST_CHANGED',
           entityType: 'Product',
@@ -388,9 +402,27 @@ export async function PATCH(
               : normalizeText(parsed.data.description),
           cost: parsed.data.cost ?? existing.cost,
           price: parsed.data.price ?? existing.price,
+          stockQty: nextVariants.length > 0
+            ? nextVariants.reduce((sum, v) => sum + (v.stockQty ?? 0), 0)
+            : existing.stockQty,
           reorderPoint: parsed.data.reorderPoint ?? existing.reorderPoint,
           trackBatches: parsed.data.trackBatches ?? existing.trackBatches,
           trackExpiry: parsed.data.trackExpiry ?? existing.trackExpiry,
+          productType: parsed.data.productType ?? existing.productType,
+          brand: parsed.data.brand === undefined ? existing.brand : normalizeText(parsed.data.brand),
+          supplierPrice: parsed.data.supplierPrice === undefined ? existing.supplierPrice : parsed.data.supplierPrice,
+          dealerCode: parsed.data.dealerCode === undefined ? existing.dealerCode : normalizeText(parsed.data.dealerCode),
+          assemblyCost: parsed.data.assemblyCost === undefined ? existing.assemblyCost : parsed.data.assemblyCost,
+          externalTransportCost: parsed.data.externalTransportCost === undefined ? existing.externalTransportCost : parsed.data.externalTransportCost,
+          internalTransportCost: parsed.data.internalTransportCost === undefined ? existing.internalTransportCost : parsed.data.internalTransportCost,
+          maintenanceCost: parsed.data.maintenanceCost === undefined ? existing.maintenanceCost : parsed.data.maintenanceCost,
+          otherCosts: parsed.data.otherCosts === undefined ? existing.otherCosts : parsed.data.otherCosts,
+          condition: parsed.data.condition ?? existing.condition,
+          color: parsed.data.color === undefined ? existing.color : normalizeText(parsed.data.color),
+          motorNumber: parsed.data.motorNumber === undefined ? existing.motorNumber : normalizeText(parsed.data.motorNumber),
+          chassisNumber: parsed.data.chassisNumber === undefined ? existing.chassisNumber : normalizeText(parsed.data.chassisNumber),
+          chassisPhotoUrl: parsed.data.chassisPhotoUrl === undefined ? existing.chassisPhotoUrl : normalizeText(parsed.data.chassisPhotoUrl),
+          motorPhotoUrl: parsed.data.motorPhotoUrl === undefined ? existing.motorPhotoUrl : normalizeText(parsed.data.motorPhotoUrl),
           uomConversions: {
             deleteMany: {},
             create: normalizedConversions.map((conversion) => ({
@@ -409,6 +441,7 @@ export async function PATCH(
               barcode: variant.barcode,
               priceOverride: variant.priceOverride,
               costOverride: variant.costOverride,
+              stockQty: variant.stockQty,
               isActive: variant.isActive
             }))
           },
@@ -467,7 +500,7 @@ export async function PATCH(
 
       await logActivity({
         tx,
-        shopId,
+        shopId: targetShopId,
         userId,
         action:
           existing.isActive !== product.isActive

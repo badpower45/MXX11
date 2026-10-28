@@ -4,8 +4,12 @@ import { requirePageRole } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { getActiveCashSession } from '@/lib/register';
 import { serializeCashSession } from '@/lib/serializers/register';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function RegisterOpenPage() {
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
+
   const { shopId, userId } = await requirePageRole('CASHIER');
   const [settings, activeSession] = await Promise.all([
     prisma.shopSetting.findUnique({ where: { shopId } }),
@@ -15,11 +19,11 @@ export default async function RegisterOpenPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Open register"
-        subtitle="Start a cash drawer session with an opening float before accepting cash payments."
+        title={t('register.open.title')}
+        subtitle={t('register.open.subtitle')}
       />
       <RegisterOpenForm
-        currencySymbol={settings?.currencySymbol ?? '₱'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         activeSession={activeSession ? serializeCashSession(activeSession) : null}
         openingFloatRequired={settings?.openingFloatRequired ?? true}
         openingFloatAmount={settings?.openingFloatAmount?.toString() ?? '0'}

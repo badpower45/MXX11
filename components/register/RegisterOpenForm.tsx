@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import { dateTime, money } from '@/lib/format';
 import { SerializedCashSession } from '@/lib/serializers/register';
+import { useLocalizedPath, useTranslations } from '@/lib/i18n/client';
 
 export default function RegisterOpenForm({
   currencySymbol,
@@ -19,6 +21,11 @@ export default function RegisterOpenForm({
   openingFloatRequired: boolean;
   openingFloatAmount: string;
 }) {
+  const t = useTranslations('register.open');
+  const lp = useLocalizedPath();
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get('redirect');
+
   const [openingFloat, setOpeningFloat] = useState(openingFloatAmount);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState('');
@@ -38,15 +45,20 @@ export default function RegisterOpenForm({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to open the register.' }));
+    const data = await response.json().catch(() => ({ error: t('unableToOpen') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data?.error ?? 'Unable to open the register.');
+      // Localize backend minimum float error if it comes back
+      let errMsg = data?.error ?? t('unableToOpen');
+      if (typeof errMsg === 'string' && errMsg.includes('must be at least')) {
+        errMsg = t('minimumFloatError', { amount: money(openingFloatAmount, currencySymbol) });
+      }
+      setError(errMsg);
       return;
     }
 
-    window.location.href = '/register/close';
+    window.location.href = lp(redirectParam || '/register/close');
   }
 
   if (activeSession) {
@@ -54,41 +66,51 @@ export default function RegisterOpenForm({
       <Card>
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Register already open</div>
-            <h2 className="mt-2 text-2xl font-black text-stone-950">Current drawer is active</h2>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">
+              {t('alreadyOpen')}
+            </div>
+            <h2 className="mt-2 text-2xl font-black text-stone-950">{t('currentDrawerActive')}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-              You already have an active register session, so a second one can&apos;t be opened for this shop.
+              {t('alreadyHaveSession')}
             </p>
           </div>
 
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm text-stone-600">
-            Opened {dateTime(activeSession.openedAt)}
+            {t('openedAt', { time: dateTime(activeSession.openedAt) })}
           </div>
         </div>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-4 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Opening float</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+              {t('openingFloat')}
+            </div>
             <div className="mt-2 text-2xl font-black text-stone-950">
               {money(activeSession.openingFloat, currencySymbol)}
             </div>
           </div>
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-4 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Status</div>
-            <div className="mt-2 text-2xl font-black text-emerald-700">{activeSession.status}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+              {t('status')}
+            </div>
+            <div className="mt-2 text-2xl font-black text-blue-700">{t('status_' + activeSession.status)}</div>
           </div>
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-4 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Notes</div>
-            <div className="mt-2 text-sm leading-6 text-stone-600">{activeSession.notes ?? 'No opening notes.'}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
+              {t('notes')}
+            </div>
+            <div className="mt-2 text-sm leading-6 text-stone-600">
+              {activeSession.notes ?? t('noOpeningNotes')}
+            </div>
           </div>
         </div>
 
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <Link href="/register/close">
-            <Button>Go to close register</Button>
+          <Link href={lp('/register/close')}>
+            <Button>{t('goToClose')}</Button>
           </Link>
-          <Link href="/register/history">
-            <Button variant="secondary">View register history</Button>
+          <Link href={lp('/register/daily')}>
+            <Button variant="secondary">{t('viewHistory')}</Button>
           </Link>
         </div>
       </Card>
@@ -99,32 +121,38 @@ export default function RegisterOpenForm({
     <Card>
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Open register</div>
-          <h2 className="mt-2 text-2xl font-black text-stone-950">Start a drawer session</h2>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">
+            {t('title')}
+          </div>
+          <h2 className="mt-2 text-2xl font-black text-stone-950">{t('startDrawerSession')}</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-            Opening the register records the starting cash float and begins the cashier&apos;s active drawer session for this shop.
+            {t('openingRecordsDescription')}
           </p>
         </div>
 
         <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-4 py-4 text-sm leading-6 text-stone-600">
           {openingFloatRequired
-            ? `This branch requires at least ${money(openingFloatAmount, currencySymbol)} before a drawer session can start.`
-            : 'One cashier can only have one active register session in a shop at a time.'}
+            ? t('requiresMinimum', { amount: money(openingFloatAmount, currencySymbol) })
+            : t('oneCashierRule')}
         </div>
       </div>
 
       <form onSubmit={openRegister} className="mt-6 space-y-6">
         {openingFloatRequired ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            Opening float requirement: {money(openingFloatAmount, currencySymbol)} minimum for each new drawer session in this branch.
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            {t('openingRequirementMinimum', { amount: money(openingFloatAmount, currencySymbol) })}
           </div>
         ) : null}
 
         <div className="rounded-[26px] border border-stone-200 bg-stone-50/80 p-4 sm:p-5">
-          <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Opening details</div>
+          <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+            {t('openingDetails')}
+          </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-semibold text-stone-700">Opening float</label>
+              <label className="mb-2 block text-sm font-semibold text-stone-700">
+                {t('openingFloat')}
+              </label>
               <Input
                 type="number"
                 min="0"
@@ -136,26 +164,30 @@ export default function RegisterOpenForm({
               />
             </div>
             <div>
-              <label className="mb-2 block text-sm font-semibold text-stone-700">Notes</label>
+              <label className="mb-2 block text-sm font-semibold text-stone-700">
+                {t('notes')}
+              </label>
               <Input
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="Optional opening notes"
+                placeholder={t('optionalNotesPlaceholder')}
               />
             </div>
           </div>
         </div>
 
         {error ? (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
         ) : null}
 
         <div className="flex flex-col gap-3 sm:flex-row">
           <Button type="submit" disabled={loading}>
-            {loading ? 'Opening register...' : 'Open register'}
+            {loading ? t('openingRegisterProgress') : t('openRegisterButton')}
           </Button>
-          <Link href="/register/history">
-            <Button type="button" variant="secondary">View history</Button>
+          <Link href={lp('/register/daily')}>
+            <Button type="button" variant="secondary">{t('viewHistoryButton')}</Button>
           </Link>
         </div>
       </form>

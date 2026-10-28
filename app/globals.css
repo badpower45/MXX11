@@ -1,8 +1,22 @@
 @import "tailwindcss";
 
+@theme {
+  --color-blue-50: #f0f7ff;
+  --color-blue-100: #e0effe;
+  --color-blue-200: #bae0fd;
+  --color-blue-300: #7cc5fb;
+  --color-blue-400: #36a4f7;
+  --color-blue-500: #0c87eb;
+  --color-blue-600: #026bc9;
+  --color-blue-700: #0355a3;
+  --color-blue-800: #074886;
+  --color-blue-900: #0c3e6f;
+  --color-blue-950: #082749;
+}
+
 :root {
-  --background: #f3f5f1;
-  --foreground: #1f2937;
+  --background: #ffffff;
+  --foreground: #0f172a;
 }
 
 html,
@@ -15,6 +29,10 @@ body {
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
   color-scheme: light;
   scroll-behavior: smooth;
+}
+
+html[lang='ar'] body {
+  font-family: var(--font-cairo), "Segoe UI", sans-serif;
 }
 
 * {
@@ -35,15 +53,15 @@ textarea {
 
 body {
   background-image:
-    radial-gradient(circle at top left, rgba(16, 185, 129, 0.12), transparent 26%),
-    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.1), transparent 24%),
-    radial-gradient(circle at 20% 100%, rgba(245, 158, 11, 0.08), transparent 18%),
-    linear-gradient(180deg, #f6f8f4 0%, #eef2ec 100%);
+    radial-gradient(circle at top left, rgba(12, 135, 235, 0.07), transparent 28%),
+    radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.05), transparent 24%),
+    radial-gradient(circle at 20% 100%, rgba(16, 185, 129, 0.04), transparent 20%),
+    linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #a8a29e;
+  color: #94a3b8;
 }
 
 ::-webkit-scrollbar {
@@ -57,18 +75,18 @@ textarea::placeholder {
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(120, 113, 108, 0.28);
+  background: rgba(100, 116, 139, 0.28);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(68, 64, 60, 0.34);
+  background: rgba(51, 65, 85, 0.38);
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 
 ::selection {
-  background: rgba(16, 185, 129, 0.18);
-  color: #1c1917;
+  background: rgba(12, 135, 235, 0.2);
+  color: #082749;
 }

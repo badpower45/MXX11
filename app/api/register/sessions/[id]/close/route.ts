@@ -7,7 +7,8 @@ import {
   appendRegisterNotes,
   calculateDenominationTotal,
   computeClosingExpectedCash,
-  normalizeDenominationSnapshot
+  normalizeDenominationSnapshot,
+  buildCashSessionSummary
 } from '@/lib/register';
 import { prisma } from '@/lib/prisma';
 import { serializeCashSession } from '@/lib/serializers/register';
@@ -94,13 +95,20 @@ export async function POST(
 
     const closedAt = new Date();
     const denominationBreakdown = normalizeDenominationSnapshot(parsed.data.denominationBreakdown);
-    const closingActual = parsed.data.denominationBreakdown
+    
+    const closingActualCash = parsed.data.denominationBreakdown
       ? calculateDenominationTotal(denominationBreakdown)
-      : parsed.data.closingActual;
+      : (parsed.data.closingActualCash ?? parsed.data.closingActual ?? 0);
+    const closingActualInstaPay = parsed.data.closingActualInstaPay ?? 0;
+    const closingActualWallet = parsed.data.closingActualWallet ?? 0;
 
     const closedSession = await prisma.$transaction(async (tx) => {
-      const expectedCash = await computeClosingExpectedCash(tx, cashSession, closedAt);
-      const variance = closingActual - expectedCash;
+      const summary = await buildCashSessionSummary(tx, cashSession, closedAt);
+      const expectedCash = summary.expectedCash;
+      const expectedInstaPay = summary.expectedInstaPay;
+      const expectedWallet = summary.expectedWallet;
+
+      const variance = closingActualCash - expectedCash;
       const status = !isOwnSession && canOverride ? 'OVERRIDE_CLOSED' : 'CLOSED';
 
       const updatedSession = await tx.cashSession.update({
@@ -109,9 +117,15 @@ export async function POST(
           closedAt,
           closedByUserId: userId,
           closingExpected: expectedCash,
-          closingActual,
+          closingActual: closingActualCash,
           variance,
           denominationBreakdown,
+          closingExpectedCash: expectedCash,
+          closingActualCash,
+          closingExpectedInstaPay: expectedInstaPay,
+          closingActualInstaPay,
+          closingExpectedWallet: expectedWallet,
+          closingActualWallet,
           reviewedByUserId: null,
           reviewedAt: null,
           reviewNote: null,
@@ -164,9 +178,15 @@ export async function POST(
         metadata: {
           cashierUserId: cashSession.userId,
           closingExpected: expectedCash,
-          closingActual,
+          closingActual: closingActualCash,
           variance,
-          denominationBreakdown
+          denominationBreakdown,
+          closingExpectedCash: expectedCash,
+          closingActualCash,
+          closingExpectedInstaPay: expectedInstaPay,
+          closingActualInstaPay,
+          closingExpectedWallet: expectedWallet,
+          closingActualWallet
         }
       });
 

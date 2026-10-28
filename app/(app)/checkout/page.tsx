@@ -1,6 +1,7 @@
 import AppHeader from '@/components/layout/AppHeader';
 import CheckoutClient from '@/components/checkout/CheckoutClient';
 import { getActiveShopContext } from '@/lib/auth/get-active-shop';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 import { hasRole } from '@/lib/authz';
 import {
   cleanupExpiredParkedSales,
@@ -29,6 +30,7 @@ type CheckoutProduct = {
   } | null;
 };
 
+
 type CheckoutCustomer = {
   id: string;
   type: string;
@@ -44,11 +46,13 @@ type CheckoutCustomer = {
 };
 
 export default async function CheckoutPage() {
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
   const { shopId, shop, session, role, userId } = await getActiveShopContext();
 
   await cleanupExpiredParkedSales(prisma, shopId);
 
-  const [products, categories, customers, settings, activeCashSession, parkedSales] = await Promise.all([
+  const [products, categories, customers, settings, activeCashSession, parkedSales, staff] = await Promise.all([
     prisma.product.findMany({
       where: { shopId, isActive: true },
       orderBy: { name: 'asc' },
@@ -145,14 +149,36 @@ export default async function CheckoutPage() {
       },
       orderBy: { createdAt: 'desc' },
       take: 20
+    }),
+    prisma.userShop.findMany({
+      where: { shopId, isActive: true },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
     })
   ]);
+  const safeCategories = categories.map((category) => ({
+    id: category.id,
+    name: category.name
+  }));
+
+  const staffList = staff.map((s) => ({
+    id: s.user.id,
+    name: s.user.name || s.user.email,
+    role: s.role
+  }));
 
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Checkout"
-        subtitle="Process sales quickly, prevent overselling, and generate receipt-ready transactions."
+        title={t('checkoutPage.title')}
+        subtitle={t('checkoutPage.subtitle')}
       />
 
       <CheckoutClient
@@ -167,7 +193,7 @@ export default async function CheckoutPage() {
               barcode: variant.barcode,
               sku: variant.sku,
               price: variant.priceOverride?.toString() ?? product.price.toString(),
-              stockQty: product.stockQty,
+              stockQty: variant.stockQty,
               categoryId: product.categoryId,
               imageUrl: product.images[0]?.imageUrl ?? null,
               category: product.category
@@ -199,7 +225,8 @@ export default async function CheckoutPage() {
               : null
           }];
         })}
-        categories={categories}
+
+        categories={safeCategories}
         customers={customers.map<CheckoutCustomer>((customer) => ({
           id: customer.id,
           type: customer.type,
@@ -215,9 +242,10 @@ export default async function CheckoutPage() {
             .toString(),
           lastPurchaseAt: customer.sales[0]?.createdAt.toISOString() ?? null
         }))}
+        staff={staffList}
         taxRate={Number(settings?.taxRate ?? 12)}
         taxMode={settings?.taxMode ?? 'EXCLUSIVE'}
-        currencySymbol={settings?.currencySymbol ?? '₱'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         defaultPaymentMethods={sanitizeDefaultPaymentMethods(settings?.defaultPaymentMethods)}
         barcodeScannerNotes={settings?.barcodeScannerNotes ?? ''}
         cashierName={session.user.name ?? 'Cashier'}
@@ -238,6 +266,7 @@ export default async function CheckoutPage() {
         receiptFooter={settings?.receiptFooter ?? null}
         receiptWidth={settings?.receiptWidth === '58mm' ? '58mm' : '80mm'}
         initialParkedSales={parkedSales.map(serializeParkedSale)}
+        shopType={shop.posType}
       />
     </div>
   );

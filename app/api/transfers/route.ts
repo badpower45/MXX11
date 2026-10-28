@@ -9,6 +9,7 @@ import { normalizeText } from '@/lib/inventory';
 import { prisma } from '@/lib/prisma';
 import { stockTransferDetailInclude } from '@/lib/stock-transfer-operations';
 import { serializeStockTransfer } from '@/lib/stock-transfers';
+import { ensureUnitsOfMeasure } from '@/lib/uom';
 
 export async function POST(request: Request) {
   try {
@@ -51,64 +52,23 @@ export async function POST(request: Request) {
       );
     }
 
-    const [destinationShop, sourceProducts, destinationProducts] = await Promise.all([
-      prisma.shop.findUnique({
-        where: { id: parsed.data.toShopId },
-        select: {
-          id: true,
-          name: true
-        }
-      }),
-      prisma.product.findMany({
-        where: {
-          shopId,
-          isActive: true,
-          id: { in: parsed.data.items.map((item) => item.fromProductId) }
-        },
-        select: {
-          id: true,
-          name: true,
-          stockQty: true
-        }
-      }),
-      prisma.product.findMany({
-        where: {
-          shopId: parsed.data.toShopId,
-          isActive: true,
-          id: { in: parsed.data.items.map((item) => item.toProductId) }
-        },
-        select: {
-          id: true,
-          name: true
-        }
-      })
-    ]);
+    const destinationShop = await prisma.shop.findUnique({
+      where: { id: parsed.data.toShopId },
+      select: {
+        id: true,
+        name: true
+      }
+    });
 
     if (!destinationShop) {
       return NextResponse.json({ error: 'Destination branch not found.' }, { status: 404 });
     }
 
-    const sourceProductMap = new Map(sourceProducts.map((product) => [product.id, product]));
-    const destinationProductMap = new Map(destinationProducts.map((product) => [product.id, product]));
-
-    for (const item of parsed.data.items) {
-      const sourceProduct = sourceProductMap.get(item.fromProductId);
-      if (!sourceProduct) {
-        return NextResponse.json({ error: 'One or more source products were not found.' }, { status: 404 });
-      }
-
-      const destinationProduct = destinationProductMap.get(item.toProductId);
-      if (!destinationProduct) {
-        return NextResponse.json({ error: 'One or more destination products were not found.' }, { status: 404 });
-      }
-
-      if (item.qty > sourceProduct.stockQty) {
-        return NextResponse.json(
-          { error: `${sourceProduct.name} only has ${sourceProduct.stockQty} unit(s) available.` },
-          { status: 400 }
-        );
-      }
-    }
+    // Ensure standard UOMs exist for both shops to avoid transaction clashes
+    await Promise.all([
+      ensureUnitsOfMeasure(shopId),
+      ensureUnitsOfMeasure(parsed.data.toShopId)
+    ]);
 
     const stockTransfer = await prisma.$transaction(async (tx) => {
       const transferNumber = await getNextDocumentNumber(tx, {
@@ -116,6 +76,237 @@ export async function POST(request: Request) {
         type: DocumentSequenceType.TRANSFER,
         prefix: 'TRF'
       });
+
+      const resolvedItems: Array<{
+        fromProductId: string;
+        toProductId: string;
+        qty: number;
+        sourceName: string;
+        targetName: string;
+      }> = [];
+
+      for (const item of parsed.data.items) {
+        const sourceProd = await tx.product.findUnique({
+          where: { id: item.fromProductId },
+          include: {
+            category: true,
+            baseUnitOfMeasure: true,
+            uomConversions: {
+              include: {
+                unitOfMeasure: true
+              }
+            },
+            variants: true,
+            images: true
+          }
+        });
+
+        if (!sourceProd || !sourceProd.isActive) {
+          throw new Error(`SOURCE_PRODUCT_NOT_FOUND:${item.fromProductId}`);
+        }
+
+        if (item.qty > sourceProd.stockQty) {
+          throw new Error(`INSUFFICIENT_STOCK:${sourceProd.name}:${sourceProd.stockQty}`);
+        }
+
+        let targetProduct = null;
+
+        // Try to resolve target product by provided ID
+        if (item.toProductId) {
+          targetProduct = await tx.product.findFirst({
+            where: { id: item.toProductId, shopId: parsed.data.toShopId, isActive: true }
+          });
+        }
+
+        // If not found by ID, try matching by SKU, barcode, or name in the target shop
+        if (!targetProduct) {
+          const matchConditions: any[] = [];
+          if (sourceProd.sku) {
+            matchConditions.push({ sku: sourceProd.sku });
+          }
+          if (sourceProd.barcode) {
+            matchConditions.push({ barcode: sourceProd.barcode });
+          }
+          matchConditions.push({
+            name: {
+              equals: sourceProd.name,
+              mode: 'insensitive'
+            }
+          });
+
+          targetProduct = await tx.product.findFirst({
+            where: {
+              shopId: parsed.data.toShopId,
+              isActive: true,
+              OR: matchConditions
+            }
+          });
+        }
+
+        // If still not found, clone it!
+        if (!targetProduct) {
+          // 1. Resolve Category in target shop
+          let targetCategoryId: string | null = null;
+          if (sourceProd.category) {
+            const existingCat = await tx.category.findFirst({
+              where: {
+                shopId: parsed.data.toShopId,
+                name: { equals: sourceProd.category.name, mode: 'insensitive' }
+              }
+            });
+            if (existingCat) {
+              targetCategoryId = existingCat.id;
+            } else {
+              const slug = sourceProd.category.name.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+              const newCat = await tx.category.create({
+                data: {
+                  shopId: parsed.data.toShopId,
+                  name: sourceProd.category.name,
+                  slug,
+                  isActive: true
+                }
+              });
+              targetCategoryId = newCat.id;
+            }
+          }
+
+          // 2. Resolve Base Unit of Measure in target shop
+          let targetBaseUnitId = '';
+          const existingBaseUnit = await tx.unitOfMeasure.findFirst({
+            where: {
+              shopId: parsed.data.toShopId,
+              code: sourceProd.baseUnitOfMeasure.code
+            }
+          });
+          if (existingBaseUnit) {
+            targetBaseUnitId = existingBaseUnit.id;
+          } else {
+            const newBaseUnit = await tx.unitOfMeasure.create({
+              data: {
+                shopId: parsed.data.toShopId,
+                code: sourceProd.baseUnitOfMeasure.code,
+                name: sourceProd.baseUnitOfMeasure.name,
+                isBase: sourceProd.baseUnitOfMeasure.isBase,
+                isActive: true
+              }
+            });
+            targetBaseUnitId = newBaseUnit.id;
+          }
+
+          // 3. Create/clone Product in target shop with 0 stockQty
+          targetProduct = await tx.product.create({
+            data: {
+              shopId: parsed.data.toShopId,
+              categoryId: targetCategoryId,
+              baseUnitOfMeasureId: targetBaseUnitId,
+              sku: sourceProd.sku,
+              barcode: sourceProd.barcode,
+              name: sourceProd.name,
+              description: sourceProd.description,
+              cost: sourceProd.cost,
+              price: sourceProd.price,
+              stockQty: 0, // MUST start at 0
+              reorderPoint: sourceProd.reorderPoint,
+              trackBatches: sourceProd.trackBatches,
+              trackExpiry: sourceProd.trackExpiry,
+              productType: sourceProd.productType,
+              brand: sourceProd.brand,
+              supplierPrice: sourceProd.supplierPrice,
+              dealerCode: sourceProd.dealerCode,
+              assemblyCost: sourceProd.assemblyCost,
+              externalTransportCost: sourceProd.externalTransportCost,
+              internalTransportCost: sourceProd.internalTransportCost,
+              maintenanceCost: sourceProd.maintenanceCost,
+              otherCosts: sourceProd.otherCosts,
+              condition: sourceProd.condition,
+              color: sourceProd.color,
+              motorNumber: sourceProd.motorNumber,
+              chassisNumber: sourceProd.chassisNumber,
+              chassisPhotoUrl: sourceProd.chassisPhotoUrl,
+              motorPhotoUrl: sourceProd.motorPhotoUrl,
+              isActive: true,
+              variants: {
+                create: sourceProd.variants.map((v) => ({
+                  color: v.color,
+                  size: v.size,
+                  flavor: v.flavor,
+                  model: v.model,
+                  sku: v.sku,
+                  barcode: v.barcode,
+                  priceOverride: v.priceOverride,
+                  costOverride: v.costOverride,
+                  isActive: v.isActive
+                }))
+              },
+              images: {
+                create: sourceProd.images.map((img) => ({
+                  imageUrl: img.imageUrl,
+                  altText: img.altText,
+                  sortOrder: img.sortOrder
+                }))
+              }
+            }
+          });
+
+          // 4. Create UoM Conversions in target shop
+          for (const conv of sourceProd.uomConversions) {
+            let targetConvUnitId = '';
+            const existingConvUnit = await tx.unitOfMeasure.findFirst({
+              where: {
+                shopId: parsed.data.toShopId,
+                code: conv.unitOfMeasure.code
+              }
+            });
+            if (existingConvUnit) {
+              targetConvUnitId = existingConvUnit.id;
+            } else {
+              const newConvUnit = await tx.unitOfMeasure.create({
+                data: {
+                  shopId: parsed.data.toShopId,
+                  code: conv.unitOfMeasure.code,
+                  name: conv.unitOfMeasure.name,
+                  isBase: conv.unitOfMeasure.isBase,
+                  isActive: true
+                }
+              });
+              targetConvUnitId = newConvUnit.id;
+            }
+
+            await tx.productUomConversion.create({
+              data: {
+                productId: targetProduct.id,
+                unitOfMeasureId: targetConvUnitId,
+                ratioToBase: conv.ratioToBase
+              }
+            });
+          }
+
+          // Log cloning activity
+          await logActivity({
+            tx,
+            shopId: parsed.data.toShopId,
+            userId,
+            action: 'PRODUCT_CREATED',
+            entityType: 'Product',
+            entityId: targetProduct.id,
+            description: `Auto-created product ${targetProduct.name} via incoming transfer cloning.`,
+            metadata: {
+              isActive: true,
+              stockQty: 0,
+              trackBatches: targetProduct.trackBatches,
+              trackExpiry: targetProduct.trackExpiry
+            }
+          });
+        }
+
+        resolvedItems.push({
+          fromProductId: item.fromProductId,
+          toProductId: targetProduct.id,
+          qty: item.qty,
+          sourceName: sourceProd.name,
+          targetName: targetProduct.name
+        });
+      }
 
       const createdTransfer = await tx.stockTransfer.create({
         data: {
@@ -126,11 +317,11 @@ export async function POST(request: Request) {
           status: 'DRAFT',
           notes: normalizeText(parsed.data.notes),
           items: {
-            create: parsed.data.items.map((item) => ({
+            create: resolvedItems.map((item) => ({
               fromProductId: item.fromProductId,
               toProductId: item.toProductId,
-              productNameSnapshot: sourceProductMap.get(item.fromProductId)!.name,
-              destinationProductNameSnapshot: destinationProductMap.get(item.toProductId)!.name,
+              productNameSnapshot: item.sourceName,
+              destinationProductNameSnapshot: item.targetName,
               qty: item.qty
             }))
           }
@@ -148,7 +339,7 @@ export async function POST(request: Request) {
         description: `Created stock transfer ${createdTransfer.transferNumber} to ${destinationShop.name}.`,
         metadata: {
           destinationShopId: destinationShop.id,
-          itemCount: parsed.data.items.length
+          itemCount: resolvedItems.length
         }
       });
 
@@ -161,7 +352,16 @@ export async function POST(request: Request) {
       },
       { status: 201 }
     );
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof Error && error.message.startsWith('SOURCE_PRODUCT_NOT_FOUND:')) {
+      return NextResponse.json({ error: 'One or more source products were not found.' }, { status: 404 });
+    }
+    if (error instanceof Error && error.message.startsWith('INSUFFICIENT_STOCK:')) {
+      const parts = error.message.split(':');
+      const name = parts[1] || 'Product';
+      const qty = parts[2] || '0';
+      return NextResponse.json({ error: `${name} only has ${qty} unit(s) available.` }, { status: 400 });
+    }
     return apiErrorResponse(error, 'Unable to create stock transfer.');
   }
 }

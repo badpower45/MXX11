@@ -5,9 +5,12 @@ import { requirePageRole } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { stockTransferDetailInclude } from '@/lib/stock-transfer-operations';
 import { serializeStockTransfer } from '@/lib/stock-transfers';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function TransfersPage() {
-  const { shopId, userId } = await requirePageRole('MANAGER');
+  const { shopId, userId, role } = await requirePageRole('MANAGER');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   const [shop, settings, memberships, sourceProducts, stockTransfers] = await Promise.all([
     prisma.shop.findUniqueOrThrow({
@@ -68,6 +71,13 @@ export default async function TransfersPage() {
       name: membership.shop.name,
       role: membership.role
     }));
+  const safeSourceProducts = sourceProducts.map((product) => ({
+    id: product.id,
+    name: product.name,
+    sku: product.sku,
+    barcode: product.barcode,
+    stockQty: Number(product.stockQty)
+  }));
 
   const destinationProducts = otherShops.length
     ? await prisma.product.findMany({
@@ -88,21 +98,33 @@ export default async function TransfersPage() {
         orderBy: [{ shopId: 'asc' }, { name: 'asc' }]
       })
     : [];
+  const safeDestinationProducts = destinationProducts.map((product) => ({
+    id: product.id,
+    shopId: product.shopId,
+    name: product.name,
+    sku: product.sku,
+    barcode: product.barcode,
+    stockQty: Number(product.stockQty)
+  }));
+  const safeTransfers = stockTransfers.map((stockTransfer) =>
+    serializeStockTransfer(stockTransfer)
+  ) as unknown as StockTransferView[];
 
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Branch transfers"
-        subtitle="Create stock transfers from the active branch, send them into transit, and confirm receipt only once at the destination branch."
+        title={t('transfers.title')}
+        subtitle={t('transfers.subtitle')}
       />
       <StockTransferManager
         activeShopId={shop.id}
         activeShopName={shop.name}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         otherShops={otherShops}
-        sourceProducts={sourceProducts}
-        destinationProducts={destinationProducts}
-        initialTransfers={stockTransfers.map((stockTransfer) => serializeStockTransfer(stockTransfer)) as unknown as StockTransferView[]}
+        sourceProducts={safeSourceProducts}
+        destinationProducts={safeDestinationProducts}
+        initialTransfers={safeTransfers}
+        userRole={role}
       />
     </div>
   );

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from '@/lib/i18n/client';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -105,6 +106,46 @@ export default function SupplierReturnManager({
   supplierReturns: SupplierReturn[];
   currencySymbol: string;
 }) {
+  const t = useTranslations('suppliers.returns');
+
+  const getLocalizedReason = (reason: string) => {
+    switch (reason) {
+      case 'DAMAGED_FROM_SUPPLIER': return t('reasonDamagedFromSupplier');
+      case 'WRONG_ITEM': return t('reasonWrongItem');
+      case 'OVER_DELIVERY': return t('reasonOverDelivery');
+      case 'EXPIRED_ON_RECEIPT': return t('reasonExpiredOnReceipt');
+      case 'QUALITY_ISSUE': return t('reasonQualityIssue');
+      default: return reason.replaceAll('_', ' ');
+    }
+  };
+
+  const getLocalizedDisposition = (disposition: string) => {
+    switch (disposition) {
+      case 'SELLABLE': return t('dispSellable');
+      case 'DAMAGED': return t('dispDamaged');
+      case 'EXPIRED': return t('dispExpired');
+      default: return disposition.replaceAll('_', ' ');
+    }
+  };
+
+  const getLocalizedReturnStatus = (status: string) => {
+    switch (status) {
+      case 'DRAFT': return t('statusDraft');
+      case 'POSTED': return t('statusPosted');
+      case 'CANCELLED': return t('statusCancelled');
+      default: return status.replaceAll('_', ' ');
+    }
+  };
+
+  const getLocalizedCreditMemoStatus = (status: string) => {
+    switch (status) {
+      case 'PENDING': return t('pending');
+      case 'ISSUED': return t('issued');
+      case 'APPLIED': return t('applied');
+      default: return status.replaceAll('_', ' ');
+    }
+  };
+
   const activeSuppliers = suppliers.filter((supplier) => supplier.isActive !== false);
   const activeProducts = products.filter((product) => product.isActive !== false);
   const [history, setHistory] = useState(supplierReturns);
@@ -153,7 +194,7 @@ export default function SupplierReturnManager({
     setSuccess('');
 
     if (!selectedProduct) {
-      setError('Please select a product.');
+      setError(t('selectProduct'));
       return;
     }
 
@@ -161,12 +202,12 @@ export default function SupplierReturnManager({
     const parsedUnitCost = Number(unitCost);
 
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
-      setError('Quantity must be greater than zero.');
+      setError(t('quantityZeroError'));
       return;
     }
 
     if (!Number.isFinite(parsedUnitCost) || parsedUnitCost < 0) {
-      setError('Unit cost must be zero or greater.');
+      setError(t('costZeroError'));
       return;
     }
 
@@ -193,17 +234,17 @@ export default function SupplierReturnManager({
     setSuccess('');
 
     if (!supplierId) {
-      setError('Please select a supplier.');
+      setError(t('selectSupplier'));
       return;
     }
 
     if (!reasonSummary.trim()) {
-      setError('Provide a short return summary.');
+      setError(t('reasonSummaryRequired'));
       return;
     }
 
     if (!lines.length) {
-      setError('Add at least one return line.');
+      setError(t('addReturnLine'));
       return;
     }
 
@@ -231,11 +272,11 @@ export default function SupplierReturnManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to create supplier return.' }));
+    const data = await response.json().catch(() => ({ error: t('failedCreateReturn') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to create supplier return.');
+      setError(data.error ?? t('failedCreateReturn'));
       return;
     }
 
@@ -248,7 +289,7 @@ export default function SupplierReturnManager({
     setCreditAmount('0');
     setCreditMemoStatus('PENDING');
     setStatus('DRAFT');
-    setSuccess(status === 'POSTED' ? 'Supplier return created and posted.' : 'Supplier return saved as draft.');
+    setSuccess(status === 'POSTED' ? t('postedSuccess') : t('draftSuccess'));
   }
 
   async function postSupplierReturn(supplierReturnId: string) {
@@ -262,16 +303,16 @@ export default function SupplierReturnManager({
       body: JSON.stringify({ action: 'POST' })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to post supplier return.' }));
+    const data = await response.json().catch(() => ({ error: t('failedPost') }));
     setBusyReturnId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to post supplier return.');
+      setError(data.error ?? t('failedPost'));
       return;
     }
 
     replaceSupplierReturn(data.supplierReturn);
-    setSuccess('Supplier return posted and inventory reduced.');
+    setSuccess(t('postReturnSuccess'));
   }
 
   async function cancelSupplierReturn(supplierReturnId: string) {
@@ -285,16 +326,16 @@ export default function SupplierReturnManager({
       body: JSON.stringify({ action: 'CANCEL' })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to cancel supplier return.' }));
+    const data = await response.json().catch(() => ({ error: t('failedCancel') }));
     setBusyReturnId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to cancel supplier return.');
+      setError(data.error ?? t('failedCancel'));
       return;
     }
 
     replaceSupplierReturn(data.supplierReturn);
-    setSuccess('Supplier return cancelled.');
+    setSuccess(t('cancelReturnSuccess'));
   }
 
   async function saveCreditMemo(supplierReturn: SupplierReturn) {
@@ -317,11 +358,11 @@ export default function SupplierReturnManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to update credit memo.' }));
+    const data = await response.json().catch(() => ({ error: t('failedUpdateCredit') }));
     setBusyReturnId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to update credit memo.');
+      setError(data.error ?? t('failedUpdateCredit'));
       return;
     }
 
@@ -331,13 +372,13 @@ export default function SupplierReturnManager({
       [supplierReturn.id]: initializeCreditDraft(data.supplierReturn)
     }));
     setActiveCreditId(null);
-    setSuccess('Supplier credit memo details updated.');
+    setSuccess(t('creditMemoUpdateSuccess'));
   }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <Card>
-        <div className="mb-4 text-lg font-black text-stone-900">Supplier return entry</div>
+        <div className="mb-4 text-lg font-black text-stone-900">{t('title')}</div>
         <div className="grid gap-4">
           <div className="grid gap-3 md:grid-cols-2">
             <select
@@ -356,33 +397,33 @@ export default function SupplierReturnManager({
               value={status}
               onChange={(event) => setStatus(event.target.value as SupplierReturnCreateStatus)}
             >
-              <option value="DRAFT">Save as draft</option>
-              <option value="POSTED">Create and post now</option>
+              <option value="DRAFT">{t('saveDraft')}</option>
+              <option value="POSTED">{t('createPostNow')}</option>
             </select>
           </div>
 
-          <Input placeholder="Reason summary" value={reasonSummary} onChange={(event) => setReasonSummary(event.target.value)} />
+          <Input placeholder={t('reasonSummaryPlaceholder')} value={reasonSummary} onChange={(event) => setReasonSummary(event.target.value)} />
           <textarea
-            className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            placeholder="Notes"
+            className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+            placeholder={t('notesPlaceholder')}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
           />
 
           <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-            <div className="text-sm font-semibold text-stone-900">Credit memo</div>
+            <div className="text-sm font-semibold text-stone-900">{t('creditMemo')}</div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <Input placeholder="Credit memo number" value={creditMemoNumber} onChange={(event) => setCreditMemoNumber(event.target.value)} />
+              <Input placeholder={t('creditMemoNumber')} value={creditMemoNumber} onChange={(event) => setCreditMemoNumber(event.target.value)} />
               <Input type="date" value={creditMemoDate} onChange={(event) => setCreditMemoDate(event.target.value)} />
-              <Input type="number" step="0.01" value={creditAmount} onChange={(event) => setCreditAmount(event.target.value)} />
+              <Input type="number" step="0.01" value={creditAmount} placeholder={t('creditMemoAmount')} onChange={(event) => setCreditAmount(event.target.value)} />
               <select
                 className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm"
                 value={creditMemoStatus}
                 onChange={(event) => setCreditMemoStatus(event.target.value as SupplierCreditMemoStatusValue)}
               >
-                <option value="PENDING">Pending</option>
-                <option value="ISSUED">Issued</option>
-                <option value="APPLIED">Applied</option>
+                <option value="PENDING">{t('pending')}</option>
+                <option value="ISSUED">{t('issued')}</option>
+                <option value="APPLIED">{t('applied')}</option>
               </select>
             </div>
           </div>
@@ -408,7 +449,7 @@ export default function SupplierReturnManager({
               </select>
               <Input type="number" min={1} value={qty} onChange={(event) => setQty(event.target.value)} />
               <Input type="number" step="0.01" value={unitCost} onChange={(event) => setUnitCost(event.target.value)} />
-              <Button type="button" variant="secondary" onClick={addLine}>Add line</Button>
+              <Button type="button" variant="secondary" onClick={addLine}>{t('addLine')}</Button>
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <select
@@ -418,7 +459,7 @@ export default function SupplierReturnManager({
               >
                 {RETURN_REASONS.map((entry) => (
                   <option key={entry} value={entry}>
-                    {getSupplierReturnReasonLabel(entry)}
+                    {getLocalizedReason(entry)}
                   </option>
                 ))}
               </select>
@@ -429,7 +470,7 @@ export default function SupplierReturnManager({
               >
                 {RETURN_DISPOSITIONS.map((entry) => (
                   <option key={entry} value={entry}>
-                    {getSupplierReturnDispositionLabel(entry)}
+                    {getLocalizedDisposition(entry)}
                   </option>
                 ))}
               </select>
@@ -437,7 +478,7 @@ export default function SupplierReturnManager({
 
             {selectedProduct ? (
               <div className="mt-3 text-sm text-stone-600">
-                Available stock for <span className="font-semibold text-stone-900">{selectedProduct.name}</span>: {selectedProduct.stockQty}
+                {t('availableStock', { name: selectedProduct.name, qty: selectedProduct.stockQty })}
               </div>
             ) : null}
 
@@ -448,32 +489,32 @@ export default function SupplierReturnManager({
                     <div>
                       <div className="font-semibold text-stone-900">{line.productNameSnapshot}</div>
                       <div className="text-xs text-stone-500">
-                        {line.qty} unit(s) / {getSupplierReturnReasonLabel(line.reason)} / {getSupplierReturnDispositionLabel(line.disposition)}
+                        {t('unitsLabel', { qty: line.qty })} / {getLocalizedReason(line.reason)} / {getLocalizedDisposition(line.disposition)}
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <span>{money(line.qty * line.unitCost, currencySymbol)}</span>
                       <Button type="button" variant="ghost" onClick={() => removeLine(index)}>
-                        Remove
+                        {t('remove')}
                       </Button>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-stone-500">No return lines added yet.</div>
+                <div className="text-sm text-stone-500">{t('noLines')}</div>
               )}
             </div>
           </div>
 
           <div className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-            Return total: <span className="font-semibold text-stone-950">{money(returnTotal, currencySymbol)}</span>
+            {t('returnTotal')} <span className="font-semibold text-stone-950">{money(returnTotal, currencySymbol)}</span>
           </div>
 
           {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+          {success ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div> : null}
 
           <Button onClick={createSupplierReturn} disabled={!lines.length || loading}>
-            {loading ? 'Saving supplier return...' : 'Save supplier return'}
+            {loading ? t('savingReturn') : t('saveReturn')}
           </Button>
         </div>
       </Card>
@@ -481,11 +522,11 @@ export default function SupplierReturnManager({
       <Card>
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <div className="text-lg font-black text-stone-900">Supplier return history</div>
-            <div className="text-sm text-stone-500">Posted returns reduce stock and keep supplier credit details visible.</div>
+            <div className="text-lg font-black text-stone-900">{t('historyTitle')}</div>
+            <div className="text-sm text-stone-500">{t('historyDesc')}</div>
           </div>
           <div className="text-right">
-            <div className="text-xs text-stone-500">Available supplier credits</div>
+            <div className="text-xs text-stone-500">{t('availableCredits')}</div>
             <div className="text-2xl font-black text-stone-900">{money(availableCreditTotal, currencySymbol)}</div>
           </div>
         </div>
@@ -500,22 +541,22 @@ export default function SupplierReturnManager({
                     <div className="text-sm text-stone-500">{supplierReturn.supplier.name}</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Badge tone={supplierReturnStatusTone(supplierReturn.status)}>
-                        {getSupplierReturnStatusLabel(supplierReturn.status)}
+                        {getLocalizedReturnStatus(supplierReturn.status)}
                       </Badge>
                       <Badge tone={supplierCreditMemoStatusTone(supplierReturn.creditMemoStatus)}>
-                        {getSupplierCreditMemoStatusLabel(supplierReturn.creditMemoStatus)}
+                        {getLocalizedCreditMemoStatus(supplierReturn.creditMemoStatus)}
                       </Badge>
                     </div>
                   </div>
                   <div className="text-right text-sm text-stone-600">
-                    <div>Created {dateTime(supplierReturn.createdAt)}</div>
-                    {supplierReturn.postedAt ? <div>Posted {dateTime(supplierReturn.postedAt)}</div> : null}
-                    <div>Credit {money(supplierReturn.creditAmount, currencySymbol)}</div>
+                    <div>{t('createdWhen', { date: dateTime(supplierReturn.createdAt) })}</div>
+                    {supplierReturn.postedAt ? <div>{t('postedWhen', { date: dateTime(supplierReturn.postedAt) })}</div> : null}
+                    <div>{t('creditAmount', { amount: money(supplierReturn.creditAmount, currencySymbol) })}</div>
                   </div>
                 </div>
 
                 <div className="mt-3 text-sm text-stone-700">{supplierReturn.reasonSummary}</div>
-                {supplierReturn.notes ? <div className="mt-1 text-sm text-stone-500">Notes: {supplierReturn.notes}</div> : null}
+                {supplierReturn.notes ? <div className="mt-1 text-sm text-stone-500">{t('notesPlaceholder')}: {supplierReturn.notes}</div> : null}
 
                 <div className="mt-4 space-y-2 rounded-2xl bg-stone-50 p-4">
                   {supplierReturn.items.map((item) => (
@@ -523,7 +564,7 @@ export default function SupplierReturnManager({
                       <div>
                         <div className="font-semibold text-stone-900">{item.productNameSnapshot}</div>
                         <div className="text-xs text-stone-500">
-                          {item.qty} unit(s) / {getSupplierReturnReasonLabel(item.reason)} / {getSupplierReturnDispositionLabel(item.disposition)}
+                          {t('unitsLabel', { qty: item.qty })} / {getLocalizedReason(item.reason)} / {getLocalizedDisposition(item.disposition)}
                         </div>
                       </div>
                       <div>{money(item.lineTotal, currencySymbol)}</div>
@@ -534,11 +575,11 @@ export default function SupplierReturnManager({
                 <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-stone-900">Credit memo</div>
+                      <div className="text-sm font-semibold text-stone-900">{t('creditMemo')}</div>
                       <div className="text-xs text-stone-500">
                         {supplierReturn.creditMemoNumber
-                          ? `${supplierReturn.creditMemoNumber} / ${supplierReturn.creditMemoDate ? shortDate(supplierReturn.creditMemoDate) : 'No date'}`
-                          : 'No credit memo recorded yet'}
+                          ? `${supplierReturn.creditMemoNumber} / ${supplierReturn.creditMemoDate ? shortDate(supplierReturn.creditMemoDate) : t('noDate')}`
+                          : t('noCreditMemo')}
                       </div>
                     </div>
                     <div className="font-semibold text-stone-900">{money(supplierReturn.creditAmount, currencySymbol)}</div>
@@ -547,12 +588,12 @@ export default function SupplierReturnManager({
                   <div className="mt-3 flex flex-wrap gap-2">
                     {supplierReturn.status === 'DRAFT' ? (
                       <Button type="button" onClick={() => postSupplierReturn(supplierReturn.id)} disabled={busyReturnId === supplierReturn.id}>
-                        {busyReturnId === supplierReturn.id ? 'Posting...' : 'Post return'}
+                        {busyReturnId === supplierReturn.id ? t('posting') : t('postReturn')}
                       </Button>
                     ) : null}
                     {supplierReturn.status === 'DRAFT' ? (
                       <Button type="button" variant="danger" onClick={() => cancelSupplierReturn(supplierReturn.id)} disabled={busyReturnId === supplierReturn.id}>
-                        Cancel draft
+                        {t('cancelDraft')}
                       </Button>
                     ) : null}
                     {supplierReturn.status !== 'CANCELLED' ? (
@@ -568,7 +609,7 @@ export default function SupplierReturnManager({
                         }}
                         disabled={busyReturnId === supplierReturn.id}
                       >
-                        Update credit memo
+                        {t('updateCreditMemo')}
                       </Button>
                     ) : null}
                   </div>
@@ -577,7 +618,7 @@ export default function SupplierReturnManager({
                     <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
                       <div className="grid gap-3 md:grid-cols-2">
                         <Input
-                          placeholder="Credit memo number"
+                          placeholder={t('creditMemoNumber')}
                           value={(creditDrafts[supplierReturn.id] ?? initializeCreditDraft(supplierReturn)).creditMemoNumber}
                           onChange={(event) =>
                             setCreditDrafts((current) => ({
@@ -605,6 +646,7 @@ export default function SupplierReturnManager({
                         <Input
                           type="number"
                           step="0.01"
+                          placeholder={t('creditMemoAmount')}
                           value={(creditDrafts[supplierReturn.id] ?? initializeCreditDraft(supplierReturn)).creditAmount}
                           onChange={(event) =>
                             setCreditDrafts((current) => ({
@@ -629,14 +671,14 @@ export default function SupplierReturnManager({
                             }))
                           }
                         >
-                          <option value="PENDING">Pending</option>
-                          <option value="ISSUED">Issued</option>
-                          <option value="APPLIED">Applied</option>
+                          <option value="PENDING">{t('pending')}</option>
+                          <option value="ISSUED">{t('issued')}</option>
+                          <option value="APPLIED">{t('applied')}</option>
                         </select>
                       </div>
                       <textarea
-                        className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-                        placeholder="Notes"
+                        className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                        placeholder={t('notesPlaceholder')}
                         value={(creditDrafts[supplierReturn.id] ?? initializeCreditDraft(supplierReturn)).notes}
                         onChange={(event) =>
                           setCreditDrafts((current) => ({
@@ -650,10 +692,10 @@ export default function SupplierReturnManager({
                       />
                       <div className="mt-4 flex gap-2">
                         <Button type="button" onClick={() => saveCreditMemo(supplierReturn)} disabled={busyReturnId === supplierReturn.id}>
-                          {busyReturnId === supplierReturn.id ? 'Saving...' : 'Save credit memo'}
+                          {busyReturnId === supplierReturn.id ? t('saving') : t('saveCreditMemo')}
                         </Button>
                         <Button type="button" variant="ghost" onClick={() => setActiveCreditId(null)}>
-                          Hide
+                          {t('hide')}
                         </Button>
                       </div>
                     </div>
@@ -662,7 +704,7 @@ export default function SupplierReturnManager({
               </div>
             ))
           ) : (
-            <div className="text-sm text-stone-500">No supplier returns recorded yet.</div>
+            <div className="text-sm text-stone-500">{t('noReturns')}</div>
           )}
         </div>
       </Card>

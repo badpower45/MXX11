@@ -9,6 +9,7 @@ import { getShopTypeDefaults, INVENTORY_REASON_PRESETS } from '@/lib/shop-config
 import { sanitizeDefaultPaymentMethods } from '@/lib/shop-settings';
 import { slugify } from '@/lib/slug';
 import { DEFAULT_UNITS_OF_MEASURE } from '@/lib/uom';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 async function uniqueSlug(name: string) {
   const base = slugify(name) || 'shop';
@@ -46,6 +47,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Ensure the user exists in the database to prevent foreign key errors (e.g., after database clears)
+    const userExists = await prisma.user.findUnique({
+      where: { id: session.user.id }
+    });
+
+    if (!userExists) {
+      let emailExists = false;
+      if (session.user.email) {
+        const userByEmail = await prisma.user.findUnique({
+          where: { email: session.user.email }
+        });
+        emailExists = !!userByEmail;
+      }
+
+      if (emailExists) {
+        const locale = await getServerLocale();
+        const t = getServerTranslator(locale);
+        return NextResponse.json({
+          error: t('onboard.staleSessionError')
+        }, { status: 400 });
+      }
+
+      await prisma.user.create({
+        data: {
+          id: session.user.id,
+          email: session.user.email ?? `${session.user.id}@local.pos`,
+          name: session.user.name ?? 'Store Owner',
+          passwordHash: '',
+          emailVerifiedAt: new Date()
+        }
+      });
+    }
+
     const existing = await prisma.userShop.findFirst({
       where: { userId: session.user.id },
       include: { shop: true }
@@ -59,6 +93,10 @@ export async function POST(request: Request) {
     const parsed = onboardSchema.safeParse(body);
 
     if (!parsed.success) {
+      console.error(
+        '[onboard] validation failed:',
+        JSON.stringify(parsed.error.issues, null, 2)
+      );
       return NextResponse.json(
         { error: parsed.error.issues[0]?.message ?? 'Invalid onboarding data.' },
         { status: 400 }

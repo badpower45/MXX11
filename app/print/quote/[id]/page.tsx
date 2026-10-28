@@ -43,7 +43,7 @@ export default async function PrintQuotePage({
     return notFound();
   }
 
-  const currencySymbol = settings?.currencySymbol ?? '₱';
+  const currencySymbol = settings?.currencySymbol ?? 'ج.م ';
 
   return (
     <main className="min-h-screen bg-stone-100 p-6 print:bg-white print:p-0">

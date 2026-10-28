@@ -2,6 +2,7 @@
 
 import { motion } from 'framer-motion';
 import Card from '@/components/ui/Card';
+import { useTranslations } from '@/lib/i18n/client';
 
 type Props = {
   totalProducts: number;
@@ -15,33 +16,25 @@ type Props = {
 
 const items = [
   {
-    label: 'Active products',
-    helper: 'Sellable catalog items ready for checkout.',
-    meta: (stockCoverage: number) => `${stockCoverage}% above reorder point`,
+    id: 'activeProducts',
     icon: 'products',
     tone: {
-      shell: 'border-emerald-200/80 bg-[linear-gradient(135deg,rgba(16,185,129,0.16),rgba(255,255,255,0.95))]',
-      icon: 'bg-emerald-100 text-emerald-700',
-      pill: 'bg-emerald-100/90 text-emerald-700'
+      shell: 'border-blue-200/80 bg-[linear-gradient(135deg,rgba(37,99,235,0.16),rgba(255,255,255,0.95))]',
+      icon: 'bg-blue-100 text-blue-700',
+      pill: 'bg-blue-100/90 text-blue-700'
     }
   },
   {
-    label: 'Low-stock products',
-    helper: 'Items that need replenishment attention.',
-    meta: (stockCoverage: number, lowStockCount: number) =>
-      lowStockCount === 0 ? 'Restock queue is clear' : `${100 - stockCoverage}% of catalog needs a check`,
+    id: 'lowStock',
     icon: 'alert',
     tone: {
-      shell: 'border-amber-200/80 bg-[linear-gradient(135deg,rgba(245,158,11,0.18),rgba(255,255,255,0.95))]',
-      icon: 'bg-amber-100 text-amber-700',
-      pill: 'bg-amber-100/90 text-amber-700'
+      shell: 'border-sky-200/80 bg-[linear-gradient(135deg,rgba(14,165,233,0.18),rgba(255,255,255,0.95))]',
+      icon: 'bg-sky-100 text-sky-700',
+      pill: 'bg-sky-100/90 text-sky-700'
     }
   },
   {
-    label: 'Pending purchases',
-    helper: 'Open purchase orders still moving through procurement.',
-    meta: (_stockCoverage: number, _lowStockCount: number, pendingPurchases: number) =>
-      pendingPurchases === 0 ? 'Receiving queue is clear' : `${pendingPurchases} open purchase(s)`,
+    id: 'pendingPurchases',
     icon: 'purchases',
     tone: {
       shell: 'border-sky-200/80 bg-[linear-gradient(135deg,rgba(14,165,233,0.16),rgba(255,255,255,0.95))]',
@@ -50,10 +43,7 @@ const items = [
     }
   },
   {
-    label: 'Sales today',
-    helper: 'Completed transactions captured today.',
-    meta: (_stockCoverage: number, _lowStockCount: number, _pendingPurchases: number, todaySaleCount: number) =>
-      `${todaySaleCount} completed sale(s)`,
+    id: 'salesToday',
     icon: 'sales',
     tone: {
       shell: 'border-stone-300/80 bg-[linear-gradient(135deg,rgba(28,25,23,0.10),rgba(255,255,255,0.98))]',
@@ -112,17 +102,50 @@ export default function DashboardStats({
   stockCoverage,
   showPendingPurchases = true
 }: Props) {
-  const visibleItems = showPendingPurchases ? items : items.filter((item) => item.label !== 'Pending purchases');
-  const values = [String(totalProducts), String(lowStockCount), String(pendingPurchases), todaySales];
+  const t = useTranslations();
+  const visibleItems = showPendingPurchases ? items : items.filter((item) => item.id !== 'pendingPurchases');
+  const values: Record<string, string> = {
+    activeProducts: String(totalProducts),
+    lowStock: String(lowStockCount),
+    pendingPurchases: String(pendingPurchases),
+    salesToday: todaySales
+  };
+
+  const labels: Record<string, string> = {
+    activeProducts: t('dashboard.stats.activeProducts.label'),
+    lowStock: t('dashboard.stats.lowStock.label'),
+    pendingPurchases: t('dashboard.stats.pendingPurchases.label'),
+    salesToday: t('dashboard.stats.salesToday.label')
+  };
+
+  const helpers: Record<string, string> = {
+    activeProducts: t('dashboard.stats.activeProducts.helper'),
+    lowStock: t('dashboard.stats.lowStock.helper'),
+    pendingPurchases: t('dashboard.stats.pendingPurchases.helper'),
+    salesToday: t('dashboard.stats.salesToday.helper')
+  };
+
+  const metaText: Record<string, string> = {
+    activeProducts: t('dashboard.stats.activeProducts.meta', { value: stockCoverage }),
+    lowStock:
+      lowStockCount === 0
+        ? t('dashboard.stats.lowStock.metaClear')
+        : t('dashboard.stats.lowStock.metaNeedsCheck', { value: 100 - stockCoverage }),
+    pendingPurchases:
+      pendingPurchases === 0
+        ? t('dashboard.stats.pendingPurchases.metaClear')
+        : t('dashboard.stats.pendingPurchases.metaOpen', { count: pendingPurchases }),
+    salesToday: t('dashboard.stats.salesToday.meta', { count: todaySaleCount })
+  };
 
   return (
     <div className={`grid gap-4 sm:grid-cols-2 ${showPendingPurchases ? 'xl:grid-cols-4' : 'xl:grid-cols-3'}`}>
       {visibleItems.map((item) => {
-        const index = items.findIndex((entry) => entry.label === item.label);
+        const index = items.findIndex((entry) => entry.id === item.id);
 
         return (
         <motion.div
-          key={item.label}
+          key={item.id}
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, delay: index * 0.05 }}
@@ -134,13 +157,13 @@ export default function DashboardStats({
                 <StatIcon icon={item.icon} />
               </div>
               <div className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${item.tone.pill}`}>
-                {item.meta(stockCoverage, lowStockCount, pendingPurchases, todaySaleCount)}
+                {metaText[item.id]}
               </div>
             </div>
 
-            <div className="mt-7 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{item.label}</div>
-            <div className="mt-3 text-3xl font-black tracking-tight text-stone-950">{values[index]}</div>
-            <div className="mt-2 text-sm leading-6 text-stone-600">{item.helper}</div>
+            <div className="mt-7 text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{labels[item.id]}</div>
+            <div className="mt-3 text-3xl font-black tracking-tight text-stone-950">{values[item.id]}</div>
+            <div className="mt-2 text-sm leading-6 text-stone-600">{helpers[item.id]}</div>
           </Card>
         </motion.div>
         );

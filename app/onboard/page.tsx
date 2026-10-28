@@ -16,6 +16,7 @@ import {
   type TaxModeValue
 } from '@/lib/shop-settings';
 import { SHOP_TYPE_OPTIONS, getShopTypeDefaults, type SupportedShopType } from '@/lib/shop-config';
+import { useLocalizedPath, useTranslations } from '@/lib/i18n/client';
 
 function createCategoryRows(shopType: SupportedShopType) {
   return getShopTypeDefaults(shopType).starterCategories.map((name) => ({ name }));
@@ -37,26 +38,29 @@ function createProductRows(shopType: SupportedShopType) {
 
 export default function OnboardPage() {
   const router = useRouter();
+  const localizedPath = useLocalizedPath();
+  const t = useTranslations('onboard');
+  const tSettings = useTranslations('settings');
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     shopName: '',
     legalBusinessName: '',
-    posType: 'GENERAL_RETAIL' as SupportedShopType,
+    posType: 'HARDWARE' as SupportedShopType,
     phone: '',
     email: '',
     address: '',
     taxId: '',
     timezone: DEFAULT_TIMEZONE,
-    currencyCode: 'PHP',
-    currencySymbol: '₱',
+    currencyCode: 'EGP',
+    currencySymbol: 'ج.م ',
     taxMode: 'EXCLUSIVE' as TaxModeValue,
     taxRate: '12',
     receiptHeader: 'Thank you for shopping with us!',
     receiptFooter: 'Please come again.',
     receiptWidth: '80mm' as '58mm' | '80mm',
-    lowStockThreshold: String(getShopTypeDefaults('GENERAL_RETAIL').lowStockThreshold),
+    lowStockThreshold: String(getShopTypeDefaults('HARDWARE').lowStockThreshold),
     defaultPaymentMethods: [...DEFAULT_PAYMENT_METHODS] as PaymentMethod[],
     openingFloatRequired: true,
     openingFloatAmount: '0',
@@ -64,9 +68,9 @@ export default function OnboardPage() {
     printerConnection: 'MANUAL' as PrinterConnectionValue,
     barcodeScannerNotes: 'Scan barcode or SKU, then press Enter to add the item quickly at checkout.'
   });
-  const [categories, setCategories] = useState(() => createCategoryRows('GENERAL_RETAIL'));
-  const [suppliers, setSuppliers] = useState(() => createSupplierRows('GENERAL_RETAIL'));
-  const [products, setProducts] = useState(() => createProductRows('GENERAL_RETAIL'));
+  const [categories, setCategories] = useState(() => createCategoryRows('HARDWARE'));
+  const [suppliers, setSuppliers] = useState(() => createSupplierRows('HARDWARE'));
+  const [products, setProducts] = useState(() => createProductRows('HARDWARE'));
 
   const selectedShopType = useMemo(() => getShopTypeDefaults(form.posType), [form.posType]);
 
@@ -109,7 +113,7 @@ export default function OnboardPage() {
 
     if (step < 4) {
       if (!canContinue()) {
-        setError('Please complete the required fields.');
+        setError(t('errors.completeFields'));
         return;
       }
 
@@ -126,9 +130,9 @@ export default function OnboardPage() {
         taxRate: Number(form.taxRate),
         lowStockThreshold: Number(form.lowStockThreshold),
         openingFloatAmount: Number(form.openingFloatAmount),
-        categories: categories.filter((item) => item.name.trim()),
-        suppliers: suppliers.filter((item) => item.name.trim()),
-        products: products.filter((item) => item.name.trim()).map((item) => ({
+        categories: categories.filter((item) => item.name.trim().length >= 2),
+        suppliers: suppliers.filter((item) => item.name.trim().length >= 2),
+        products: products.filter((item) => item.name.trim().length >= 2).map((item) => ({
           ...item,
           cost: Number(item.cost),
           price: Number(item.price),
@@ -138,15 +142,15 @@ export default function OnboardPage() {
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to complete onboarding.' }));
+    const data = await response.json().catch(() => ({ error: t('errors.unableComplete') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to complete onboarding.');
+      setError(data.error ?? t('errors.unableComplete'));
       return;
     }
 
-    router.push('/dashboard');
+    router.push(localizedPath('/dashboard'));
     router.refresh();
   }
 
@@ -154,27 +158,27 @@ export default function OnboardPage() {
     <main className="min-h-screen bg-stone-50 py-10">
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-8">
-          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-600">Business setup</div>
-          <h1 className="mt-2 text-4xl font-black text-stone-900">Set up your business and first branch.</h1>
+          <div className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-600">{t('businessSetup')}</div>
+          <h1 className="mt-2 text-4xl font-black text-stone-900">{t('title')}</h1>
           <p className="mt-2 text-sm text-stone-500">
-            We will configure the legal business identity, branch defaults, receipt setup, checkout behavior, and starter catalog in one practical flow.
+            {t('subtitle')}
           </p>
         </div>
 
         <div className="mb-6 flex flex-wrap gap-3 text-sm">
           {[
-            'Branch identity',
-            'Operations setup',
-            'Starter lists',
-            'Starter products'
+            t('steps.1'),
+            t('steps.2'),
+            t('steps.3'),
+            t('steps.4')
           ].map((label, index) => (
             <div
               key={label}
               className={`rounded-full px-4 py-2 font-semibold ${
-                step >= index + 1 ? 'bg-emerald-600 text-white' : 'border border-stone-200 bg-white text-stone-500'
+                step >= index + 1 ? 'bg-blue-600 text-white' : 'border border-stone-200 bg-white text-stone-500'
               }`}
             >
-              Step {index + 1}: {label}
+              {t('steps.label', { step: index + 1, label })}
             </div>
           ))}
         </div>
@@ -184,37 +188,37 @@ export default function OnboardPage() {
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Branch / store name</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.branchName')}</label>
                   <Input value={form.shopName} onChange={(event) => setForm((current) => ({ ...current, shopName: event.target.value }))} required />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Legal business name</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.legalName')}</label>
                   <Input value={form.legalBusinessName} onChange={(event) => setForm((current) => ({ ...current, legalBusinessName: event.target.value }))} required />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Phone</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.phone')}</label>
                   <Input value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Email</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.email')}</label>
                   <Input type="email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Tax ID / permit</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.taxId')}</label>
                   <Input value={form.taxId} onChange={(event) => setForm((current) => ({ ...current, taxId: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Timezone</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.timezone')}</label>
                   <Input value={form.timezone} onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Address</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step1.address')}</label>
                   <Input value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
                 </div>
               </div>
 
               <div>
-                <div className="mb-3 text-sm font-semibold text-stone-900">Business type</div>
+                <div className="mb-3 text-sm font-semibold text-stone-900">{t('step1.businessType')}</div>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {SHOP_TYPE_OPTIONS.map((option) => (
                     <button
@@ -223,12 +227,12 @@ export default function OnboardPage() {
                       onClick={() => applyShopType(option.value)}
                       className={`rounded-[24px] border p-4 text-left transition ${
                         form.posType === option.value
-                          ? 'border-emerald-300 bg-emerald-50'
+                          ? 'border-blue-300 bg-blue-50'
                           : 'border-stone-200 bg-white hover:border-stone-300 hover:bg-stone-50'
                       }`}
                     >
-                      <div className="text-base font-black text-stone-950">{option.label}</div>
-                      <div className="mt-2 text-sm leading-6 text-stone-500">{option.description}</div>
+                      <div className="text-base font-black text-stone-950">{t(`step1.shopTypes.${option.value}.label`)}</div>
+                      <div className="mt-2 text-sm leading-6 text-stone-500">{t(`step1.shopTypes.${option.value}.description`)}</div>
                     </button>
                   ))}
                 </div>
@@ -236,20 +240,19 @@ export default function OnboardPage() {
 
               <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
                 <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Inventory defaults</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-700">{t('step1.inventoryDefaults')}</div>
                   <div className="mt-3 space-y-2 text-sm text-stone-600">
-                    <div>Batch tracking: <span className="font-semibold text-stone-900">{selectedShopType.batchTrackingEnabled ? 'Enabled' : 'Optional'}</span></div>
-                    <div>Expiry tracking: <span className="font-semibold text-stone-900">{selectedShopType.expiryTrackingEnabled ? 'Enabled' : 'Optional'}</span></div>
-                    <div>FEFO display: <span className="font-semibold text-stone-900">{selectedShopType.fefoEnabled ? 'Emphasized' : 'Available'}</span></div>
-                    <div>Expiry alerts: <span className="font-semibold text-stone-900">{selectedShopType.expiryAlertDays} day(s)</span></div>
+                    <div>{t('step1.batchTracking')}<span className="font-semibold text-stone-900">{selectedShopType.batchTrackingEnabled ? t('step1.enabled') : t('step1.optional')}</span></div>
+                    <div>{t('step1.expiryTracking')}<span className="font-semibold text-stone-900">{selectedShopType.expiryTrackingEnabled ? t('step1.enabled') : t('step1.optional')}</span></div>
+                    <div>{t('step1.fefoDisplay')}<span className="font-semibold text-stone-900">{selectedShopType.fefoEnabled ? t('step1.emphasized') : t('step1.available')}</span></div>
+                    <div>{t('step1.expiryAlerts')}<span className="font-semibold text-stone-900">{t('step1.days', { days: selectedShopType.expiryAlertDays })}</span></div>
                   </div>
                 </div>
                 <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Starter guidance</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{t('step1.starterGuidance')}</div>
                   <div className="mt-3 space-y-2 text-sm text-stone-600">
-                    {selectedShopType.hints.map((hint) => (
-                      <div key={hint}>{hint}</div>
-                    ))}
+                    <div>{t(`step1.shopTypes.${form.posType}.hint0`)}</div>
+                    <div>{t(`step1.shopTypes.${form.posType}.hint1`)}</div>
                   </div>
                 </div>
               </div>
@@ -260,15 +263,15 @@ export default function OnboardPage() {
             <div className="space-y-6">
               <div className="grid gap-4 md:grid-cols-2">
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Currency code</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.currencyCode')}</label>
                   <Input value={form.currencyCode} onChange={(event) => setForm((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Currency symbol</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.currencySymbol')}</label>
                   <Input value={form.currencySymbol} onChange={(event) => setForm((current) => ({ ...current, currencySymbol: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Tax mode</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.taxMode')}</label>
                   <select
                     className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm"
                     value={form.taxMode}
@@ -276,32 +279,32 @@ export default function OnboardPage() {
                   >
                     {TAX_MODE_OPTIONS.map((entry) => (
                       <option key={entry} value={entry}>
-                        {getTaxModeLabel(entry)}
+                        {entry === 'INCLUSIVE' ? tSettings('taxModeInclusive') : entry === 'NON_TAXABLE' ? tSettings('taxModeNonTaxable') : tSettings('taxModeExclusive')}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Tax rate (%)</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.taxRate')}</label>
                   <Input type="number" step="0.01" value={form.taxRate} onChange={(event) => setForm((current) => ({ ...current, taxRate: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Low stock threshold</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.lowStockThreshold')}</label>
                   <Input type="number" value={form.lowStockThreshold} onChange={(event) => setForm((current) => ({ ...current, lowStockThreshold: event.target.value }))} />
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Receipt width</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.receiptWidth')}</label>
                   <select
                     className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm"
                     value={form.receiptWidth}
                     onChange={(event) => setForm((current) => ({ ...current, receiptWidth: event.target.value as '58mm' | '80mm' }))}
                   >
-                    <option value="58mm">58mm thermal roll</option>
-                    <option value="80mm">80mm thermal roll</option>
+                    <option value="58mm">{t('step2.width58')}</option>
+                    <option value="80mm">{t('step2.width80')}</option>
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Required opening float</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.requiredOpeningFloat')}</label>
                   <Input type="number" step="0.01" value={form.openingFloatAmount} onChange={(event) => setForm((current) => ({ ...current, openingFloatAmount: event.target.value }))} />
                 </div>
                 <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">
@@ -310,10 +313,10 @@ export default function OnboardPage() {
                     checked={form.openingFloatRequired}
                     onChange={(event) => setForm((current) => ({ ...current, openingFloatRequired: event.target.checked }))}
                   />
-                  Require opening float before a register session starts
+                  {t('step2.requireOpeningFloatCheckbox')}
                 </label>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Printer connection</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.printerConnection')}</label>
                   <select
                     className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm"
                     value={form.printerConnection}
@@ -321,25 +324,25 @@ export default function OnboardPage() {
                   >
                     {PRINTER_CONNECTION_OPTIONS.map((entry) => (
                       <option key={entry} value={entry}>
-                        {getPrinterConnectionLabel(entry)}
+                        {entry === 'NETWORK' ? tSettings('printerNetwork') : entry === 'BLUETOOTH' ? tSettings('printerBluetooth') : entry === 'MANUAL' ? tSettings('printerManual') : tSettings('printerUsb')}
                       </option>
                     ))}
                   </select>
                 </div>
                 <div>
-                  <label className="mb-2 block text-sm font-semibold">Printer name</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.printerName')}</label>
                   <Input value={form.printerName} onChange={(event) => setForm((current) => ({ ...current, printerName: event.target.value }))} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Receipt header</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.receiptHeader')}</label>
                   <Input value={form.receiptHeader} onChange={(event) => setForm((current) => ({ ...current, receiptHeader: event.target.value }))} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Receipt footer</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.receiptFooter')}</label>
                   <Input value={form.receiptFooter} onChange={(event) => setForm((current) => ({ ...current, receiptFooter: event.target.value }))} />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold">Barcode scanner notes</label>
+                  <label className="mb-2 block text-sm font-semibold">{t('step2.barcodeScannerNotes')}</label>
                   <textarea
                     className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-900"
                     value={form.barcodeScannerNotes}
@@ -349,7 +352,7 @@ export default function OnboardPage() {
               </div>
 
               <div>
-                <div className="mb-3 text-sm font-semibold text-stone-900">Default payment methods</div>
+                <div className="mb-3 text-sm font-semibold text-stone-900">{t('step2.defaultPaymentMethods')}</div>
                 <div className="flex flex-wrap gap-2">
                   {PAYMENT_METHODS.map((method) => {
                     const active = form.defaultPaymentMethods.includes(method);
@@ -360,7 +363,7 @@ export default function OnboardPage() {
                         onClick={() => togglePaymentMethod(method)}
                         className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                           active
-                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                            ? 'border-blue-600 bg-blue-600 text-white'
                             : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'
                         }`}
                       >
@@ -376,57 +379,60 @@ export default function OnboardPage() {
           {step === 3 ? (
             <div className="space-y-6">
               <div>
-                <div className="mb-3 text-lg font-black text-stone-900">Starter categories</div>
+                <div className="mb-3 text-lg font-black text-stone-900">{t('step3.starterCategories')}</div>
                 <div className="space-y-3">
                   {categories.map((item, index) => (
                     <div key={`${item.name}-${index}`} className="flex gap-3">
                       <Input value={item.name} onChange={(event) => setCategories((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))} />
-                      <Button type="button" variant="secondary" onClick={() => setCategories((current) => current.filter((_, entryIndex) => entryIndex !== index))}>Remove</Button>
+                      <Button type="button" variant="secondary" onClick={() => setCategories((current) => current.filter((_, entryIndex) => entryIndex !== index))}>{t('step3.remove')}</Button>
                     </div>
                   ))}
                 </div>
-                <Button type="button" variant="secondary" className="mt-3" onClick={() => setCategories((current) => [...current, { name: '' }])}>Add category</Button>
+                <Button type="button" variant="secondary" className="mt-3" onClick={() => setCategories((current) => [...current, { name: '' }])}>{t('step3.addCategory')}</Button>
               </div>
 
               <div>
-                <div className="mb-3 text-lg font-black text-stone-900">Starter suppliers</div>
+                <div className="mb-3 text-lg font-black text-stone-900">{t('step3.starterSuppliers')}</div>
                 <div className="space-y-3">
                   {suppliers.map((item, index) => (
                     <div key={`${item.name}-${index}`} className="grid gap-3 md:grid-cols-3">
-                      <Input placeholder="Supplier name" value={item.name} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))} />
-                      <Input placeholder="Contact name" value={item.contactName} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, contactName: event.target.value } : entry))} />
+                      <Input placeholder={t('step3.supplierName')} value={item.name} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))} />
+                      <Input placeholder={t('step3.contactName')} value={item.contactName} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, contactName: event.target.value } : entry))} />
                       <div className="flex gap-3">
-                        <Input placeholder="Phone" value={item.phone} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, phone: event.target.value } : entry))} />
-                        <Button type="button" variant="secondary" onClick={() => setSuppliers((current) => current.filter((_, entryIndex) => entryIndex !== index))}>Remove</Button>
+                        <Input placeholder={t('step3.phone')} value={item.phone} onChange={(event) => setSuppliers((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, phone: event.target.value } : entry))} />
+                        <Button type="button" variant="secondary" onClick={() => setSuppliers((current) => current.filter((_, entryIndex) => entryIndex !== index))}>{t('step3.remove')}</Button>
                       </div>
                     </div>
                   ))}
                 </div>
-                <Button type="button" variant="secondary" className="mt-3" onClick={() => setSuppliers((current) => [...current, { name: '', contactName: '', phone: '' }])}>Add supplier</Button>
+                <Button type="button" variant="secondary" className="mt-3" onClick={() => setSuppliers((current) => [...current, { name: '', contactName: '', phone: '' }])}>{t('step3.addSupplier')}</Button>
               </div>
             </div>
           ) : null}
 
           {step === 4 ? (
             <div>
-              <div className="mb-3 text-lg font-black text-stone-900">Starter products</div>
+              <div className="mb-3 text-lg font-black text-stone-900">{t('step4.starterProducts')}</div>
               <div className="mb-4 rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-                Shop type defaults: batch tracking <span className="font-semibold text-stone-900">{selectedShopType.batchTrackingEnabled ? 'enabled' : 'optional'}</span>, expiry tracking <span className="font-semibold text-stone-900">{selectedShopType.expiryTrackingEnabled ? 'enabled' : 'optional'}</span>.
+                {t('step4.shopTypeDefaults', {
+                  batch: selectedShopType.batchTrackingEnabled ? t('step1.enabled') : t('step1.optional'),
+                  expiry: selectedShopType.expiryTrackingEnabled ? t('step1.enabled') : t('step1.optional')
+                })}
               </div>
               <div className="space-y-3">
                 {products.map((item, index) => (
                   <div key={`${item.name}-${index}`} className="rounded-[24px] border border-stone-200 bg-stone-50/70 p-4">
                     <div className="grid gap-3 md:grid-cols-4">
-                      <Input placeholder="Name" value={item.name} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))} />
-                      <Input placeholder="Category name" value={item.categoryName} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, categoryName: event.target.value } : entry))} />
-                      <Input placeholder="SKU" value={item.sku} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, sku: event.target.value } : entry))} />
-                      <Input placeholder="Barcode" value={item.barcode} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, barcode: event.target.value } : entry))} />
-                      <Input type="number" step="0.01" placeholder="Cost" value={item.cost} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, cost: event.target.value } : entry))} />
-                      <Input type="number" step="0.01" placeholder="Price" value={item.price} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, price: event.target.value } : entry))} />
-                      <Input type="number" placeholder="Opening stock" value={item.stockQty} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, stockQty: event.target.value } : entry))} />
+                      <Input placeholder={t('step4.name')} value={item.name} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, name: event.target.value } : entry))} />
+                      <Input placeholder={t('step4.categoryName')} value={item.categoryName} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, categoryName: event.target.value } : entry))} />
+                      <Input placeholder={t('step4.sku')} value={item.sku} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, sku: event.target.value } : entry))} />
+                      <Input placeholder={t('step4.barcode')} value={item.barcode} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, barcode: event.target.value } : entry))} />
+                      <Input type="number" step="0.01" placeholder={t('step4.cost')} value={item.cost} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, cost: event.target.value } : entry))} />
+                      <Input type="number" step="0.01" placeholder={t('step4.price')} value={item.price} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, price: event.target.value } : entry))} />
+                      <Input type="number" placeholder={t('step4.openingStock')} value={item.stockQty} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, stockQty: event.target.value } : entry))} />
                       <div className="flex gap-3">
-                        <Input type="number" placeholder="Reorder level" value={item.reorderPoint} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reorderPoint: event.target.value } : entry))} />
-                        <Button type="button" variant="secondary" onClick={() => setProducts((current) => current.filter((_, entryIndex) => entryIndex !== index))}>Remove</Button>
+                        <Input type="number" placeholder={t('step4.reorderLevel')} value={item.reorderPoint} onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, reorderPoint: event.target.value } : entry))} />
+                        <Button type="button" variant="secondary" onClick={() => setProducts((current) => current.filter((_, entryIndex) => entryIndex !== index))}>{t('step3.remove')}</Button>
                       </div>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-6 text-sm text-stone-600">
@@ -436,7 +442,7 @@ export default function OnboardPage() {
                           checked={item.trackBatches}
                           onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, trackBatches: event.target.checked, trackExpiry: event.target.checked ? entry.trackExpiry : false } : entry))}
                         />
-                        Track batches
+                        {t('step4.trackBatches')}
                       </label>
                       <label className="inline-flex items-center gap-2">
                         <input
@@ -444,7 +450,7 @@ export default function OnboardPage() {
                           checked={item.trackExpiry}
                           onChange={(event) => setProducts((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, trackExpiry: event.target.checked, trackBatches: event.target.checked ? true : entry.trackBatches } : entry))}
                         />
-                        Track expiry
+                        {t('step4.trackExpiry')}
                       </label>
                     </div>
                   </div>
@@ -472,7 +478,7 @@ export default function OnboardPage() {
                   ])
                 }
               >
-                Add product
+                {t('step4.addProduct')}
               </Button>
             </div>
           ) : null}
@@ -480,8 +486,8 @@ export default function OnboardPage() {
           {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
           <div className="mt-6 flex flex-wrap justify-between gap-3">
-            <Button type="button" variant="secondary" onClick={() => setStep((value) => Math.max(1, value - 1))} disabled={step === 1}>Back</Button>
-            <Button type="submit" disabled={loading}>{loading ? 'Finishing setup...' : step === 4 ? 'Finish setup' : 'Continue'}</Button>
+            <Button type="button" variant="secondary" onClick={() => setStep((value) => Math.max(1, value - 1))} disabled={step === 1}>{t('buttons.back')}</Button>
+            <Button type="submit" disabled={loading}>{loading ? t('buttons.finishing') : step === 4 ? t('buttons.finish') : t('buttons.continue')}</Button>
           </div>
         </form>
       </div>

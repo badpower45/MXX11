@@ -7,6 +7,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { signOut } from 'next-auth/react';
 import { useMemo, useState } from 'react';
 import type { PermissionKey, PermissionState } from '@/lib/permissions';
+import { useLocalizedPath, useTranslations, useLocale } from '@/lib/i18n/client';
+import { stripLocalePrefix } from '@/lib/i18n/locales';
 
 type SidebarProps = {
   shopName: string;
@@ -37,190 +39,31 @@ type IconName =
   | 'suppliers'
   | 'purchases'
   | 'reports'
+  | 'branches'
   | 'settings'
   | 'activity'
-  | 'staff';
+  | 'staff'
+  | 'dues'
+  | 'traffic'
+  | 'expenses'
+  | 'debts'
+  | 'shipments';
 
 type NavLink = {
   href: string;
   label: string;
-  description: string;
   icon: IconName;
   minRole: ShopRole;
   requiredPermission?: PermissionKey;
+  badge?: string;
 };
 
 const ROLE_WEIGHT: Record<ShopRole, number> = {
+  STOCK_COUNTER: 0,
   CASHIER: 1,
   MANAGER: 2,
   ADMIN: 3
 };
-
-const sections: Array<{ title: string; links: NavLink[] }> = [
-  {
-    title: 'Overview',
-    links: [
-      {
-        href: '/dashboard',
-        label: 'Dashboard',
-        description: 'Live business pulse and attention points.',
-        icon: 'dashboard',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/sales',
-        label: 'Sales',
-        description: 'Review completed transactions and receipts.',
-        icon: 'sales',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/returns',
-        label: 'Returns',
-        description: 'Track voids, refunds, exchanges, and approvals.',
-        icon: 'returns',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/stock-counts',
-        label: 'Stock counts',
-        description: 'Run formal stock takes and post approved variances.',
-        icon: 'stock-counts',
-        minRole: 'CASHIER'
-      }
-    ]
-  },
-  {
-    title: 'Operations',
-    links: [
-      {
-        href: '/checkout',
-        label: 'Checkout',
-        description: 'Start a sale and issue receipts quickly.',
-        icon: 'checkout',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/parked-sales',
-        label: 'Saved carts',
-        description: 'Review held carts and printable customer quotes.',
-        icon: 'sales',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/register/open',
-        label: 'Open register',
-        description: 'Start a drawer session with the opening cash float.',
-        icon: 'register',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/register/close',
-        label: 'Close register',
-        description: 'Count cash, compare totals, and close active drawers.',
-        icon: 'register',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/register/history',
-        label: 'Register history',
-        description: 'Review past drawer sessions and variances.',
-        icon: 'register',
-        minRole: 'CASHIER'
-      },
-      {
-        href: '/inventory',
-        label: 'Inventory',
-        description: 'Track stock levels and adjustments.',
-        icon: 'inventory',
-        minRole: 'MANAGER',
-        requiredPermission: 'ADJUST_INVENTORY'
-      },
-      {
-        href: '/transfers',
-        label: 'Transfers',
-        description: 'Move stock between branches with send and receive controls.',
-        icon: 'transfers',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/purchases',
-        label: 'Purchases',
-        description: 'Handle supplier orders and receiving.',
-        icon: 'purchases',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/activity',
-        label: 'Activity',
-        description: 'Review the operational audit trail.',
-        icon: 'activity',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/staff',
-        label: 'Staff',
-        description: 'Manage employees, roles, and access.',
-        icon: 'staff',
-        minRole: 'ADMIN',
-        requiredPermission: 'MANAGE_STAFF'
-      }
-    ]
-  },
-  {
-    title: 'Catalog',
-    links: [
-      {
-        href: '/products',
-        label: 'Products',
-        description: 'Manage sellable items and pricing.',
-        icon: 'products',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/categories',
-        label: 'Categories',
-        description: 'Keep the catalog organized cleanly.',
-        icon: 'categories',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/customers',
-        label: 'Customers',
-        description: 'Track customer history, loyalty, and receivables.',
-        icon: 'customers',
-        minRole: 'MANAGER'
-      },
-      {
-        href: '/suppliers',
-        label: 'Suppliers',
-        description: 'Maintain vendor relationships and details.',
-        icon: 'suppliers',
-        minRole: 'MANAGER'
-      }
-    ]
-  },
-  {
-    title: 'Workspace',
-    links: [
-      {
-        href: '/reports',
-        label: 'Reports',
-        description: 'Owner reporting for sales, stock, profit, and cashier controls.',
-        icon: 'reports',
-        minRole: 'ADMIN',
-        requiredPermission: 'VIEW_REPORTS'
-      },
-      {
-        href: '/settings',
-        label: 'Settings',
-        description: 'Shop rules, tax, receipts, and defaults.',
-        icon: 'settings',
-        minRole: 'MANAGER'
-      }
-    ]
-  }
-];
 
 function formatShopType(shopType: string) {
   return shopType
@@ -231,13 +74,13 @@ function formatShopType(shopType: string) {
 }
 
 function SidebarIcon({ name, active = false }: { name: IconName; active?: boolean }) {
-  const common = 'h-[18px] w-[18px]';
-  const color = active ? 'text-emerald-700' : 'text-stone-500';
+  const common = 'h-4 w-4 shrink-0 transition-colors';
+  const color = active ? 'text-white' : 'text-stone-500 group-hover:text-stone-800';
 
   switch (name) {
     case 'dashboard':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M4 13h7V4H4z" />
           <path d="M13 20h7v-9h-7z" />
           <path d="M13 11h7V4h-7z" />
@@ -246,7 +89,7 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'checkout':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M6 4h12l1 5H5z" />
           <path d="M7 9v10h10V9" />
           <path d="M10 13h4" />
@@ -254,7 +97,7 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'register':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M5 7.5A2.5 2.5 0 0 1 7.5 5h9A2.5 2.5 0 0 1 19 7.5v9A2.5 2.5 0 0 1 16.5 19h-9A2.5 2.5 0 0 1 5 16.5z" />
           <path d="M5 10h14" />
           <path d="M9 14h6" />
@@ -262,7 +105,7 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'sales':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M7 4h10v16H7z" />
           <path d="M10 8h4" />
           <path d="M10 12h4" />
@@ -271,61 +114,57 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'returns':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M9 7H5v4" />
           <path d="M5 11a7 7 0 1 0 2-4.9" />
           <path d="M15 9h3" />
-          <path d="M15 13h2" />
         </svg>
       );
     case 'stock-counts':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M7 4h10" />
           <path d="M6 6.5A2.5 2.5 0 0 1 8.5 4h7A2.5 2.5 0 0 1 18 6.5v11A2.5 2.5 0 0 1 15.5 20h-7A2.5 2.5 0 0 1 6 17.5z" />
           <path d="m9 11 1.8 1.8L15 8.5" />
-          <path d="M9 16h6" />
         </svg>
       );
     case 'products':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
-          <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z" />
-          <path d="m12 12 8-4.5" />
-          <path d="m12 12-8-4.5" />
-          <path d="M12 12v9" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="m16.5 9.4-9-5.19M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+          <polyline points="3.29 7 12 12 20.71 7" />
+          <line x1="12" y1="22" x2="12" y2="12" />
         </svg>
       );
     case 'categories':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
-          <path d="M4 7h7v5H4z" />
-          <path d="M13 7h7v5h-7z" />
-          <path d="M4 14h7v5H4z" />
-          <path d="M13 14h7v5h-7z" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="M4 4h6v6H4z" />
+          <path d="M14 4h6v6h-6z" />
+          <path d="M4 14h6v6H4z" />
+          <path d="M14 14h6v6h-6z" />
         </svg>
       );
     case 'customers':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
-          <path d="M5 19v-1a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v1" />
-          <path d="M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-          <path d="M19 8h2" />
-          <path d="M20 7v2" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
         </svg>
       );
     case 'inventory':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
-          <path d="M4 7h16" />
-          <path d="M7 7V4h10v3" />
-          <path d="M5 7h14v12H5z" />
-          <path d="M9 12h6" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+          <path d="m3.3 7 8.7 5 8.7-5" />
+          <path d="M12 12v10" />
         </svg>
       );
     case 'transfers':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M7 7h10" />
           <path d="m13 4 4 3-4 3" />
           <path d="M17 17H7" />
@@ -334,14 +173,14 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'suppliers':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M4 18v-5a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v5" />
-          <path d="M12 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+          <circle cx="12" cy="6" r="3" />
         </svg>
       );
     case 'purchases':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M7 7h10" />
           <path d="M7 12h10" />
           <path d="M7 17h6" />
@@ -350,33 +189,82 @@ function SidebarIcon({ name, active = false }: { name: IconName; active?: boolea
       );
     case 'reports':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M5 19V5" />
           <path d="M19 19H5" />
           <path d="m8 15 3-4 3 2 3-5" />
         </svg>
       );
+    case 'branches':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="m3 9 9-5 9 5" />
+          <path d="M4 9h16v10H4z" />
+          <path d="M9 19v-6h6v6" />
+        </svg>
+      );
     case 'activity':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M4 12h4l2-4 4 8 2-4h4" />
           <path d="M4 5h16v14H4z" />
         </svg>
       );
     case 'settings':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
-          <path d="M12 8.5A3.5 3.5 0 1 0 12 15.5A3.5 3.5 0 1 0 12 8.5Z" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1 1 0 0 0 .2 1.1l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1 1 0 0 0-1.1-.2 1 1 0 0 0-.6.9V20a2 2 0 0 1-4 0v-.2a1 1 0 0 0-.6-.9 1 1 0 0 0-1.1.2l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1 1 0 0 0 .2-1.1 1 1 0 0 0-.9-.6H4a2 2 0 0 1 0-4h.2a1 1 0 0 0 .9-.6 1 1 0 0 0-.2-1.1l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1 1 0 0 0 1.1.2 1 1 0 0 0 .6-.9V4a2 2 0 0 1 4 0v.2a1 1 0 0 0 .6.9 1 1 0 0 0 1.1-.2l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1 1 0 0 0-.2 1.1 1 1 0 0 0 .9.6H20a2 2 0 0 1 0 4h-.2a1 1 0 0 0-.4 1.9" />
         </svg>
       );
     case 'staff':
       return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={`${common} ${color}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
           <path d="M7 19v-1a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v1" />
-          <path d="M12 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+          <circle cx="12" cy="7" r="3" />
           <path d="M4 19v-.5A3.5 3.5 0 0 1 7.5 15" />
           <path d="M20 19v-.5A3.5 3.5 0 0 0 16.5 15" />
+        </svg>
+      );
+    case 'dues':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <rect x="2" y="5" width="20" height="14" rx="2" />
+          <line x1="2" y1="10" x2="22" y2="10" />
+          <path d="M6 14h2" />
+          <path d="M11 14h3" />
+        </svg>
+      );
+    case 'expenses':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <line x1="12" y1="1" x2="12" y2="23" />
+          <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+          <path d="M17 19l4-4-4-4" />
+        </svg>
+      );
+    case 'debts':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <rect x="3" y="4" width="18" height="16" rx="2" />
+          <line x1="7" y1="8" x2="17" y2="8" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+          <line x1="7" y1="16" x2="13" y2="16" />
+        </svg>
+      );
+    case 'shipments':
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <path d="M2 20a4 4 0 0 0 4 0 4 4 0 0 1 4 0 4 4 0 0 0 4 0 4 4 0 0 1 4 0 4 4 0 0 0 4 0" />
+          <path d="m4 17 1.5-6h13l1.5 6" />
+          <path d="M9 11V6h6v5" />
+          <path d="M12 2v4" />
+        </svg>
+      );
+    default:
+      return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`${common} ${color}`}>
+          <circle cx="12" cy="12" r="9" />
         </svg>
       );
   }
@@ -391,12 +279,188 @@ export default function AppSidebar({
   availableShops
 }: SidebarProps) {
   const pathname = usePathname();
+  const normalizedPathname = stripLocalePrefix(pathname);
+  const localizedPath = useLocalizedPath();
+  const { locale } = useLocale();
+  const isAr = locale === 'ar';
   const router = useRouter();
+  const tNav = useTranslations('nav');
+  const tSidebar = useTranslations('layout.sidebar');
+  const tRoles = useTranslations('roles');
+  const tShopTypes = useTranslations('shopTypes');
+  const tCommon = useTranslations('common');
+
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [switchingShop, setSwitchingShop] = useState(false);
   const [switchError, setSwitchError] = useState('');
-  const shopTypeLabel = formatShopType(shopType);
+
+  const shopTypeLabelRaw = tShopTypes(shopType);
+  const shopTypeLabel = shopTypeLabelRaw.startsWith('shopTypes.') ? formatShopType(shopType) : shopTypeLabelRaw;
+  const roleLabelRaw = tRoles(role);
+  const roleLabel = roleLabelRaw.startsWith('roles.') ? role : roleLabelRaw;
+
+  // Streamlined, High-Performance Section Grouping
+  const sections = useMemo<Array<{ title: string; links: NavLink[] }>>(
+    () => [
+      {
+        title: isAr ? 'العمليات الملاحية والتموين' : 'Marine Operations',
+        links: [
+          {
+            href: '/dashboard',
+            label: isAr ? 'لوحة التحكم' : 'Dashboard',
+            icon: 'dashboard',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/shipments',
+            label: isAr ? 'شحنات وتموين السفن' : 'Shipments & Supply',
+            icon: 'shipments',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/checkout',
+            label: isAr ? 'تموين وشحن السفن (POS)' : 'POS Checkout',
+            icon: 'checkout',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/sales',
+            label: isAr ? 'الفواتير البحرية (D/As)' : 'Marine Invoices',
+            icon: 'sales',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/parked-sales',
+            label: isAr ? 'عروض أسعار (Proforma)' : 'Proforma Quotes',
+            icon: 'sales',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/dues',
+            label: isAr ? 'مستحقات نداءات السفن' : 'Dues & Bookings',
+            icon: 'dues',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/returns',
+            label: isAr ? 'المرتجعات والتسويات' : 'Returns & Credits',
+            icon: 'returns',
+            minRole: 'CASHIER'
+          }
+        ]
+      },
+      {
+        title: isAr ? 'المخازن واللوجستيات' : 'Stores & Logistics',
+        links: [
+          {
+            href: '/products',
+            label: isAr ? 'مخزون المؤن والقطع' : 'Provisions & Stores',
+            icon: 'products',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/inventory',
+            label: isAr ? 'تسويات وتعديل المخزون' : 'Inventory Moves',
+            icon: 'inventory',
+            minRole: 'MANAGER',
+            requiredPermission: 'ADJUST_INVENTORY'
+          },
+          {
+            href: '/transfers',
+            label: isAr ? 'تحويلات بين الموانئ' : 'Port Transfers',
+            icon: 'transfers',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/stock-counts',
+            label: isAr ? 'جرد مخازن الموانئ' : 'Stock Counts',
+            icon: 'stock-counts',
+            minRole: 'STOCK_COUNTER'
+          },
+          {
+            href: '/suppliers',
+            label: isAr ? 'الموردين والتجار' : 'Suppliers',
+            icon: 'suppliers',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/purchases',
+            label: isAr ? 'أوامر التوريد والاستلام' : 'Purchase Orders',
+            icon: 'purchases',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/debts',
+            label: isAr ? 'مديونيات الموردين' : 'Supplier Debts',
+            icon: 'debts',
+            minRole: 'MANAGER'
+          }
+        ]
+      },
+      {
+        title: isAr ? 'الخزينة ومصروفات الميناء' : 'Treasury & Finance',
+        links: [
+          {
+            href: '/register/daily',
+            label: isAr ? 'خزينة وتحصيل اليومية' : 'Daily Cash & Drawers',
+            icon: 'register',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/expenses',
+            label: isAr ? 'مصاريف وتشغيل الميناء' : 'Port Expenses',
+            icon: 'expenses',
+            minRole: 'CASHIER'
+          }
+        ]
+      },
+      {
+        title: isAr ? 'الإدارة والرقابة' : 'Administration & Control',
+        links: [
+          {
+            href: '/reports',
+            label: isAr ? 'التقارير الملاحية والمالية' : 'Reports & Analytics',
+            icon: 'reports',
+            minRole: 'ADMIN',
+            requiredPermission: 'VIEW_REPORTS'
+          },
+          {
+            href: '/staff',
+            label: isAr ? 'طاقم العمل والصلاحيات' : 'Marine Staff & RBAC',
+            icon: 'staff',
+            minRole: 'ADMIN',
+            requiredPermission: 'MANAGE_STAFF'
+          },
+          {
+            href: '/customers',
+            label: isAr ? 'التوكيلات والعملاء' : 'Shipping Agents',
+            icon: 'customers',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/branches',
+            label: isAr ? 'الفروع والموانئ' : 'Ports & Branches',
+            icon: 'branches',
+            minRole: 'CASHIER'
+          },
+          {
+            href: '/activity',
+            label: isAr ? 'سجل العمليات والرقابة' : 'Audit Log',
+            icon: 'activity',
+            minRole: 'MANAGER'
+          },
+          {
+            href: '/settings',
+            label: isAr ? 'إعدادات النظام' : 'System Settings',
+            icon: 'settings',
+            minRole: 'MANAGER'
+          }
+        ]
+      }
+    ],
+    [isAr]
+  );
 
   const visibleSections = useMemo(
     () =>
@@ -410,12 +474,8 @@ export default function AppSidebar({
           )
         }))
         .filter((section) => section.links.length > 0),
-    [permissions, role]
+    [permissions, role, sections]
   );
-
-  const activeLink = visibleSections
-    .flatMap((section) => section.links)
-    .find((link) => pathname === link.href || pathname.startsWith(`${link.href}/`));
 
   async function switchShop(nextShopId: string) {
     if (!nextShopId || nextShopId === activeShopId) {
@@ -431,10 +491,10 @@ export default function AppSidebar({
       body: JSON.stringify({ shopId: nextShopId })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to switch branches right now.' }));
+    const data = await response.json().catch(() => ({ error: tSidebar('switchError') }));
 
     if (!response.ok) {
-      setSwitchError(data.error ?? 'Unable to switch branches right now.');
+      setSwitchError(data.error ?? tSidebar('switchError'));
       setSwitchingShop(false);
       return;
     }
@@ -444,109 +504,116 @@ export default function AppSidebar({
   }
 
   const sidebarContent = (
-    <div className="flex h-full flex-col gap-4 p-4">
-      <div className="rounded-[32px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,255,255,0.84))] p-4 shadow-[0_24px_48px_-30px_rgba(28,25,23,0.36)] backdrop-blur">
-        <div className="flex items-start justify-between gap-3">
-          <div className={`min-w-0 ${isCollapsed ? 'w-full text-center' : ''}`}>
-            <div className={`inline-flex h-12 w-12 items-center justify-center rounded-[18px] bg-[linear-gradient(180deg,#111827,#0f172a)] text-base font-black text-white shadow-[0_18px_30px_-16px_rgba(15,23,42,0.7)] ${isCollapsed ? 'mx-auto' : ''}`}>
-              V
-            </div>
-            {!isCollapsed ? (
-              <>
-                <div className="mt-4 text-[11px] font-semibold uppercase tracking-[0.24em] text-emerald-700">Vertex POS</div>
-                <div className="mt-1 truncate text-xl font-black text-stone-950">{shopName}</div>
-                <div className="mt-1 text-sm text-stone-500">Modern back office for checkout, stock, and operations.</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <span className="inline-flex rounded-full border border-stone-200 bg-stone-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-600">
-                    {shopTypeLabel}
-                  </span>
-                  <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                    {role}
-                  </span>
-                </div>
-                {availableShops.length > 1 ? (
-                  <div className="mt-4 space-y-2">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Active branch</div>
-                    <select
-                      className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none transition hover:border-stone-300 focus:border-emerald-500"
-                      value={activeShopId}
-                      onChange={(event) => void switchShop(event.target.value)}
-                      disabled={switchingShop}
-                    >
-                      {availableShops.map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {entry.name} ({entry.role})
-                        </option>
-                      ))}
-                    </select>
-                    {switchError ? <div className="text-xs text-red-600">{switchError}</div> : null}
+    <div className="flex h-full flex-col justify-between p-3 select-none">
+      {/* Top Header Card */}
+      <div>
+        <div className="rounded-2xl border border-stone-200/90 bg-white p-3 shadow-xs">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-700 via-blue-600 to-sky-500 text-lg shadow-sm shadow-blue-500/25">
+                ⚓
+              </div>
+              {!isCollapsed && (
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-blue-700 leading-none">
+                    Seaways Ops
                   </div>
-                ) : null}
-              </>
-            ) : null}
+                  <div className="mt-1 truncate text-sm font-black text-stone-900 tracking-tight leading-none">
+                    {shopName}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Collapse toggle button on desktop */}
+            <button
+              type="button"
+              onClick={() => setIsCollapsed((v) => !v)}
+              className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-stone-200 bg-stone-50 text-stone-500 hover:bg-stone-100 hover:text-stone-900 lg:flex transition-colors"
+              title={isCollapsed ? (isAr ? 'توسيع القائمة' : 'Expand') : (isAr ? 'طي القائمة' : 'Collapse')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                {isCollapsed ? (
+                  <path d="m9 18 6-6-6-6" />
+                ) : (
+                  <path d="m15 18-6-6 6-6" />
+                )}
+              </svg>
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setIsCollapsed((value) => !value)}
-            className="hidden h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-500 transition hover:border-stone-300 hover:bg-stone-50 hover:text-stone-900 lg:inline-flex"
-            aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-              {isCollapsed ? <path d="m9 6 6 6-6 6" /> : <path d="m15 6-6 6 6 6" />}
-            </svg>
-          </button>
+          {!isCollapsed && (
+            <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-stone-100 pt-2 text-[11px]">
+              <span className="inline-flex items-center gap-1 font-bold text-stone-600 truncate">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                <span>{shopTypeLabel}</span>
+              </span>
+              <span className="rounded-md bg-blue-50 px-2 py-0.5 font-bold text-blue-700 border border-blue-100/60">
+                {roleLabel}
+              </span>
+            </div>
+          )}
+
+          {!isCollapsed && availableShops.length > 1 && (
+            <div className="mt-2 pt-2 border-t border-stone-100">
+              <select
+                className="h-8 w-full rounded-lg border border-stone-200 bg-stone-50/60 px-2 text-xs font-semibold text-stone-800 outline-none hover:bg-stone-100 focus:border-blue-500 transition-colors"
+                value={activeShopId}
+                onChange={(e) => void switchShop(e.target.value)}
+                disabled={switchingShop}
+              >
+                {availableShops.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
-      {!isCollapsed ? (
-        <div className="rounded-[30px] border border-emerald-100 bg-[linear-gradient(145deg,rgba(236,253,245,0.92),rgba(255,255,255,0.88),rgba(239,246,255,0.86))] p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Current focus</div>
-          <div className="mt-2 text-lg font-black text-stone-950">{activeLink?.label ?? 'Workspace'}</div>
-          <p className="mt-2 text-sm leading-6 text-stone-600">
-            {activeLink?.description ?? 'Move between sales, catalog, and back-office work without losing context.'}
-          </p>
-        </div>
-      ) : null}
-
-      <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+      {/* Navigation Links Scrollable Area */}
+      <nav className="my-3 min-h-0 flex-1 space-y-4 overflow-y-auto pe-1 overscroll-contain">
         {visibleSections.map((section) => (
-          <div key={section.title}>
-            {!isCollapsed ? (
-              <div className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.22em] text-stone-400">
+          <div key={section.title} className="space-y-1">
+            {!isCollapsed && (
+              <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-stone-400">
                 {section.title}
               </div>
-            ) : null}
+            )}
 
-            <div className="space-y-2">
+            <div className="space-y-1">
               {section.links.map((link) => {
-                const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+                const active =
+                  normalizedPathname === link.href ||
+                  (link.href !== '/dashboard' && normalizedPathname.startsWith(`${link.href}/`));
+
                 return (
                   <Link
                     key={link.href}
-                    href={link.href}
+                    href={localizedPath(link.href)}
                     onClick={() => setIsMobileOpen(false)}
                     title={isCollapsed ? link.label : undefined}
-                    className={`group flex items-center gap-3 rounded-[26px] border px-3 py-3 transition duration-200 ${
+                    className={`group flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-xs font-bold transition-all ${
                       active
-                        ? 'border-emerald-200 bg-[linear-gradient(180deg,rgba(236,253,245,0.95),rgba(255,255,255,0.96))] text-stone-950 shadow-[0_18px_36px_-26px_rgba(5,150,105,0.65)]'
-                        : 'border-transparent text-stone-600 hover:border-stone-200 hover:bg-white/75 hover:text-stone-950'
-                    } ${isCollapsed ? 'justify-center px-2' : ''}`}
+                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                        : 'text-stone-600 hover:bg-stone-100 hover:text-stone-900'
+                    } ${isCollapsed ? 'justify-center px-1' : ''}`}
                   >
                     <div
-                      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition ${
-                        active ? 'bg-white shadow-[0_12px_24px_-18px_rgba(5,150,105,0.55)]' : 'bg-stone-100 group-hover:bg-white'
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                        active
+                          ? 'bg-white/20 text-white'
+                          : 'bg-stone-100 text-stone-500 group-hover:bg-white group-hover:text-stone-800'
                       }`}
                     >
                       <SidebarIcon name={link.icon} active={active} />
                     </div>
 
-                    {!isCollapsed ? (
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">{link.label}</div>
-                        <div className="mt-0.5 truncate text-xs text-stone-500">{link.description}</div>
-                      </div>
-                    ) : null}
+                    {!isCollapsed && (
+                      <span className="truncate flex-1 text-[13px]">{link.label}</span>
+                    )}
                   </Link>
                 );
               })}
@@ -555,98 +622,86 @@ export default function AppSidebar({
         ))}
       </nav>
 
-      {!isCollapsed ? (
-        <div className="rounded-[30px] border border-stone-200/80 bg-white/82 p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">Fast lane</div>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {visibleSections
-              .flatMap((section) => section.links)
-              .slice(0, 3)
-              .map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setIsMobileOpen(false)}
-                  className="rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2.5 text-center text-xs font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-white hover:text-stone-950"
-                >
-                  {item.label}
-                </Link>
-              ))}
+      {/* Bottom Sign-out Button */}
+      <div className="pt-2 border-t border-stone-200/80">
+        <button
+          type="button"
+          onClick={() => signOut({ callbackUrl: localizedPath('/login') })}
+          className={`flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-xs font-bold text-stone-600 hover:bg-red-50 hover:text-red-700 transition-colors ${
+            isCollapsed ? 'justify-center px-1' : ''
+          }`}
+          title={isAr ? 'تسجيل الخروج' : 'Sign Out'}
+        >
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-stone-100 text-stone-500 group-hover:bg-red-100 group-hover:text-red-600">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+              <path d="M15 3h4v18h-4" />
+              <path d="m10 17 5-5-5-5" />
+              <path d="M15 12H5" />
+            </svg>
           </div>
-        </div>
-      ) : null}
-
-      <button
-        type="button"
-        onClick={() => signOut({ callbackUrl: '/login' })}
-        aria-label="Sign out"
-        className={`inline-flex items-center justify-center rounded-[22px] border border-stone-300 bg-white px-4 py-3 text-sm font-semibold text-stone-900 shadow-[0_16px_28px_-22px_rgba(28,25,23,0.4)] transition hover:border-stone-400 hover:bg-stone-50 ${isCollapsed ? 'px-0' : ''}`}
-      >
-        {isCollapsed ? (
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-            <path d="M15 3h4v18h-4" />
-            <path d="m10 17 5-5-5-5" />
-            <path d="M15 12H5" />
-          </svg>
-        ) : (
-          'Sign out'
-        )}
-      </button>
+          {!isCollapsed && <span>{tCommon('signOut')}</span>}
+        </button>
+      </div>
     </div>
   );
 
   return (
     <>
-      <div className="border-b border-white/70 bg-white/78 px-4 py-3 backdrop-blur lg:hidden">
+      {/* Mobile Top Navbar with Hamburger */}
+      <div className="border-b border-stone-200 bg-white/95 px-4 py-2.5 backdrop-blur-md lg:hidden sticky top-0 z-40">
         <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Vertex POS</div>
-            <div className="truncate text-lg font-black text-stone-950">{shopName}</div>
+          <div className="flex items-center gap-2">
+            <span className="text-xl">⚓</span>
+            <div className="min-w-0">
+              <div className="text-[10px] font-black uppercase tracking-wider text-blue-700">Seaways Ops</div>
+              <div className="truncate text-sm font-black text-stone-900">{shopName}</div>
+            </div>
           </div>
+
           <button
             type="button"
             onClick={() => {
               setIsCollapsed(false);
               setIsMobileOpen(true);
             }}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-stone-200 bg-white text-stone-700 shadow-[0_14px_28px_-20px_rgba(28,25,23,0.45)]"
-            aria-label="Open sidebar"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-stone-200 bg-stone-50 text-stone-700 hover:bg-stone-100 shadow-xs"
+            aria-label={tSidebar('openSidebar')}
           >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
-              <path d="M4 7h16" />
-              <path d="M4 12h16" />
-              <path d="M4 17h16" />
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+              <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
         </div>
       </div>
 
+      {/* Mobile Drawer */}
       <AnimatePresence>
         {isMobileOpen ? (
           <motion.div
-            className="fixed inset-0 z-50 bg-stone-950/45 lg:hidden"
+            className="fixed inset-0 z-50 bg-stone-950/50 backdrop-blur-xs lg:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsMobileOpen(false)}
           >
             <motion.aside
-              className="h-full w-[88vw] max-w-sm border-r border-white/70 bg-[linear-gradient(180deg,rgba(249,250,251,0.98),rgba(244,244,240,0.96))] shadow-[0_40px_120px_-48px_rgba(28,25,23,0.65)]"
-              initial={{ x: -28, opacity: 0 }}
+              className="h-full w-[82vw] max-w-xs border-e border-stone-200 bg-white shadow-2xl"
+              initial={{ x: isAr ? 100 : -100, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
-              exit={{ x: -24, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 240, damping: 28 }}
-              onClick={(event) => event.stopPropagation()}
+              exit={{ x: isAr ? 100 : -100, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 280, damping: 28 }}
+              onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex h-full flex-col">{sidebarContent}</div>
+              {sidebarContent}
             </motion.aside>
           </motion.div>
         ) : null}
       </AnimatePresence>
 
+      {/* Desktop Sticky Sidebar */}
       <aside
-        className={`hidden border-r border-white/80 bg-[linear-gradient(180deg,rgba(249,250,251,0.92),rgba(244,244,240,0.88))] backdrop-blur lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0 lg:transition-[width] lg:duration-300 ${
-          isCollapsed ? 'lg:w-28' : 'lg:w-[320px]'
+        className={`hidden border-e border-stone-200/90 bg-stone-50/70 backdrop-blur-md lg:sticky lg:top-0 lg:flex lg:h-screen lg:shrink-0 lg:transition-[width] lg:duration-200 ${
+          isCollapsed ? 'lg:w-[76px]' : 'lg:w-[268px]'
         }`}
       >
         <div className="flex h-full w-full flex-col">{sidebarContent}</div>

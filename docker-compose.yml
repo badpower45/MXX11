@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16
+    container_name: vertex-pos-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: vertex
+      POSTGRES_PASSWORD: vertex
+      POSTGRES_DB: vertex_pos
+    volumes:
+      - vertex-pos-db:/var/lib/postgresql/data
+
+volumes:
+  vertex-pos-db:

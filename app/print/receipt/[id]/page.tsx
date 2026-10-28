@@ -70,7 +70,7 @@ export default async function PrintReceiptPage({
     <main className="min-h-screen bg-stone-50 p-6">
       <ThermalReceipt
         autoprint={query.autoprint === '1'}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         receiptHeader={settings?.receiptHeader}
         receiptFooter={settings?.receiptFooter}
         receiptWidth={settings?.receiptWidth === '58mm' ? '58mm' : '80mm'}

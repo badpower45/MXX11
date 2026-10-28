@@ -20,23 +20,23 @@ describe('offline checkout helpers', () => {
   });
 
   it('creates offline receipt numbers with date stamp and unique suffix', () => {
-    const value = new Date('2026-04-06T13:45:20+08:00');
+    const value = new Date('2026-04-06T13:45:20+02:00');
     const receipt = createOfflineReceiptNumber(value);
 
     expect(receipt).toMatch(/^OFF-20260406-134520-[A-Z0-9]{8}$/);
   });
 
   it('creates client request ids with sanitized shop and user parts', () => {
-    const value = new Date('2026-04-06T13:45:20+08:00');
+    const value = new Date('2026-04-06T13:45:20+02:00');
     const id = createOfflineClientRequestId('shop-001/main', 'cashier#1', value);
 
     expect(id).toMatch(/^OFFSYNC-SHOP001MAI-CASHIER1-20260406134520-[A-Z0-9]{8}$/);
   });
 
   it('computes stock snapshot age in minutes and handles invalid values', () => {
-    const now = new Date('2026-04-06T14:00:00+08:00').getTime();
+    const now = new Date('2026-04-06T14:00:00+02:00').getTime();
 
-    expect(getStockSnapshotAgeMinutes('2026-04-06T13:45:00+08:00', now)).toBe(15);
+    expect(getStockSnapshotAgeMinutes('2026-04-06T13:45:00+02:00', now)).toBe(15);
     expect(getStockSnapshotAgeMinutes('not-a-date', now)).toBe(Number.POSITIVE_INFINITY);
   });
 

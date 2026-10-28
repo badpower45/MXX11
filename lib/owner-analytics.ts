@@ -30,7 +30,7 @@ function formatDateKey(value: Date) {
 }
 
 function shortLabel(value: Date) {
-  return new Intl.DateTimeFormat('en-PH', {
+  return new Intl.DateTimeFormat('ar-EG', {
     month: 'short',
     day: '2-digit'
   }).format(value);
@@ -42,7 +42,7 @@ function weekdayLabel(dayIndex: number) {
 
 function hourLabel(hour: number) {
   const base = new Date(2026, 0, 1, hour, 0, 0, 0);
-  return new Intl.DateTimeFormat('en-PH', {
+  return new Intl.DateTimeFormat('ar-EG', {
     hour: 'numeric'
   }).format(base);
 }
@@ -687,7 +687,7 @@ export async function getOwnerAnalyticsData(shopId: string) {
 
   return {
     periodLabel: `Last ${ANALYTICS_WINDOW_DAYS} days`,
-    currencySymbol: base.settings?.currencySymbol ?? 'PHP ',
+    currencySymbol: base.settings?.currencySymbol ?? 'ج.م ',
     summary: {
       sellThroughPercent:
         totalSoldQty + totalOnHand > 0

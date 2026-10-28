@@ -25,7 +25,7 @@ export async function GET(request: Request) {
     const items = await prisma.userShop.findMany({
       where: {
         shopId: { in: filteredShopIds },
-        ...(role === 'ADMIN' || role === 'MANAGER' || role === 'CASHIER' ? { role } : {}),
+        ...(role === 'ADMIN' || role === 'MANAGER' || role === 'CASHIER' || role === 'STOCK_COUNTER' ? { role } : {}),
         ...(status === 'active' ? { isActive: true } : status === 'inactive' ? { isActive: false } : {}),
         ...(query
           ? {
@@ -89,8 +89,62 @@ export async function GET(request: Request) {
       orderBy: [{ isActive: 'desc' }, { assignedAt: 'desc' }]
     });
 
+    let guestItems: any[] = [];
+    if (!role || role === 'STOCK_COUNTER') {
+      guestItems = await prisma.guestStaff.findMany({
+        where: {
+          shopId: { in: filteredShopIds },
+          ...(status === 'active' ? { isActive: true } : status === 'inactive' ? { isActive: false } : {}),
+          ...(query
+            ? {
+                name: {
+                  contains: query,
+                  mode: 'insensitive'
+                }
+              }
+            : {})
+        },
+        include: {
+          shop: {
+            select: {
+              id: true,
+              name: true,
+              slug: true
+            }
+          }
+        },
+        orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }]
+      });
+    }
+
+    const serializedRegular = items.map(serializeStaffListItem);
+    const serializedGuests = guestItems.map((guest) => ({
+      id: guest.id,
+      userId: '',
+      name: guest.name,
+      email: 'بدون حساب',
+      role: 'STOCK_COUNTER' as const,
+      shopId: guest.shopId,
+      shopName: guest.shop.name,
+      shopSlug: guest.shop.slug,
+      isActive: guest.isActive,
+      assignedAt: guest.createdAt.toISOString(),
+      disabledAt: null,
+      lastLogin: null,
+      customPermissions: [],
+      baseSalary: null,
+      commissionRate: null
+    }));
+
+    const combinedItems = [...serializedRegular, ...serializedGuests].sort((left, right) => {
+      if (left.isActive !== right.isActive) {
+        return left.isActive ? -1 : 1;
+      }
+      return new Date(right.assignedAt).getTime() - new Date(left.assignedAt).getTime();
+    });
+
     return NextResponse.json({
-      items: items.map(serializeStaffListItem),
+      items: combinedItems,
       shops: managedShops
     });
   } catch (error) {
@@ -102,6 +156,77 @@ export async function POST(request: Request) {
   try {
     const { userId } = await requirePermission('MANAGE_STAFF');
     const body = await request.json();
+    
+    const isGuest = body.isGuest === true;
+    if (isGuest) {
+      if (!body.name || body.name.trim().length < 2) {
+        return NextResponse.json({ error: 'Name must be at least 2 characters.' }, { status: 400 });
+      }
+      if (!body.shopId) {
+        return NextResponse.json({ error: 'Shop ID is required.' }, { status: 400 });
+      }
+      
+      const hasShopAccess = await assertManagedShopAccess(userId, body.shopId);
+      if (!hasShopAccess) {
+        return NextResponse.json({ error: 'You do not have access to that shop.' }, { status: 403 });
+      }
+
+      const guest = await prisma.$transaction(async (tx) => {
+        const createdGuest = await tx.guestStaff.create({
+          data: {
+            name: body.name.trim(),
+            shopId: body.shopId,
+            isActive: true
+          },
+          include: {
+            shop: {
+              select: {
+                id: true,
+                name: true,
+                slug: true
+              }
+            }
+          }
+        });
+
+        await logActivity({
+          tx,
+          shopId: createdGuest.shopId,
+          userId,
+          action: 'STAFF_CREATED',
+          entityType: 'GuestStaff',
+          entityId: createdGuest.id,
+          description: `Created guest staff account for ${createdGuest.name}.`,
+          metadata: {
+            role: 'STOCK_COUNTER',
+            isGuest: true
+          }
+        });
+
+        return createdGuest;
+      });
+
+      const serializedGuest = {
+        id: guest.id,
+        userId: '',
+        name: guest.name,
+        email: 'بدون حساب',
+        role: 'STOCK_COUNTER' as const,
+        shopId: guest.shopId,
+        shopName: guest.shop.name,
+        shopSlug: guest.shop.slug,
+        isActive: guest.isActive,
+        assignedAt: guest.createdAt.toISOString(),
+        disabledAt: null,
+        lastLogin: null,
+        customPermissions: [],
+        baseSalary: null,
+        commissionRate: null
+      };
+
+      return NextResponse.json({ item: serializedGuest }, { status: 201 });
+    }
+
     const parsed = staffCreateSchema.safeParse(body);
 
     if (!parsed.success) {
@@ -147,7 +272,9 @@ export async function POST(request: Request) {
           shopId: parsed.data.shopId,
           role: parsed.data.role,
           isActive: true,
-          assignedAt: new Date()
+          assignedAt: new Date(),
+          baseSalary: parsed.data.baseSalary,
+          commissionRate: parsed.data.commissionRate
         },
         include: {
           shop: {

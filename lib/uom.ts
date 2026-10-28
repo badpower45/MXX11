@@ -1,3 +1,4 @@
+import 'server-only';
 import { prisma } from '@/lib/prisma';
 
 export const DEFAULT_UNITS_OF_MEASURE = [

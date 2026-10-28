@@ -61,6 +61,33 @@ export async function POST(
       );
     }
 
+    const activeSummary = await buildCashSessionSummary(prisma, cashSession, new Date());
+    const drawerType = parsed.data.drawer;
+    const amountToWithdraw = parsed.data.amount;
+
+    let availableBalance = 0;
+    if (drawerType === 'INSTAPAY') {
+      availableBalance = activeSummary.expectedInstaPay;
+    } else if (drawerType === 'WALLET') {
+      availableBalance = activeSummary.expectedWallet;
+    } else {
+      availableBalance = activeSummary.expectedCash;
+    }
+
+    const isWithdrawal = ['PAYOUT', 'CASH_DROP', 'PETTY_CASH'].includes(parsed.data.type);
+    if (isWithdrawal && amountToWithdraw > availableBalance) {
+      const drawerNamesAr: Record<string, string> = {
+        CASH: 'درج الكاش',
+        INSTAPAY: 'درج انستا باي',
+        WALLET: 'درج المحفظة'
+      };
+      const drawerName = drawerNamesAr[drawerType] || 'الدرج';
+      return NextResponse.json(
+        { error: `الرصيد غير كافٍ في ${drawerName}. الرصيد المتاح: ${availableBalance.toFixed(2)}` },
+        { status: 400 }
+      );
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const movement = await tx.cashMovement.create({
         data: {
@@ -69,7 +96,8 @@ export async function POST(
           type: parsed.data.type,
           amount: parsed.data.amount,
           note: parsed.data.note,
-          createdByUserId: userId
+          createdByUserId: userId,
+          drawer: parsed.data.drawer
         },
         include: {
           createdByUser: {
@@ -94,7 +122,8 @@ export async function POST(
           cashierUserId: cashSession.userId,
           type: parsed.data.type,
           amount: parsed.data.amount,
-          note: parsed.data.note
+          note: parsed.data.note,
+          drawer: parsed.data.drawer
         }
       });
 
@@ -112,6 +141,7 @@ export async function POST(
         type: result.movement.type,
         amount: result.movement.amount.toString(),
         note: result.movement.note,
+        drawer: result.movement.drawer ?? 'CASH',
         createdAt: result.movement.createdAt.toISOString(),
         createdByName: result.movement.createdByUser.name ?? result.movement.createdByUser.email
       },

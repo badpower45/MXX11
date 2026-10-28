@@ -2,16 +2,19 @@ import AppHeader from '@/components/layout/AppHeader';
 import StaffCreateForm from '@/components/staff/StaffCreateForm';
 import { requirePagePermission } from '@/lib/authz';
 import { getManagedShops } from '@/lib/staff';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function NewStaffPage() {
   const { userId, shopId } = await requirePagePermission('MANAGE_STAFF');
   const shops = await getManagedShops(userId);
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Add staff"
-        subtitle="Create a new employee account, choose the managed shop assignment, and set the initial role without touching the rest of the auth flow."
+        title={t('staff.new.title')}
+        subtitle={t('staff.new.subtitle')}
       />
       <StaffCreateForm shops={shops} defaultShopId={shopId} />
     </div>

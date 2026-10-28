@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 
 type RegisterDb = Prisma.TransactionClient | typeof prisma;
 
-export const CASH_PAYMENT_METHOD = 'Cash';
+export const CASH_PAYMENT_METHOD = 'كاش';
 
 export async function acquireCashSessionOpenLock(
   db: RegisterDb,
@@ -13,7 +13,7 @@ export async function acquireCashSessionOpenLock(
 ) {
   const lockKey = `cash-session-open:${shopId}:${userId}`;
 
-  await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
+  await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
 }
 
 export const REGISTER_DENOMINATIONS = [
@@ -48,14 +48,21 @@ export type RegisterTimelineEntry = {
   note: string | null;
   reference: string | null;
   userName: string | null;
+  referenceId?: string | null;
 };
 
 export type RegisterSessionSummary = {
   expectedCash: number;
+  expectedInstaPay: number;
+  expectedWallet: number;
   salesCount: number;
   grossSalesTotal: number;
   cashSalesTotal: number;
+  instaPaySalesTotal: number;
+  walletSalesTotal: number;
   refundCashTotal: number;
+  refundInstaPayTotal: number;
+  refundWalletTotal: number;
   paymentBreakdown: Array<{ method: string; amount: number }>;
   movementTotals: Record<CashMovementType, number>;
   movements: Array<{
@@ -63,6 +70,7 @@ export type RegisterSessionSummary = {
     type: CashMovementType;
     amount: number;
     note: string | null;
+    drawer: string;
     createdAt: Date;
     createdByName: string | null;
   }>;
@@ -215,7 +223,6 @@ export async function buildCashSessionSummary(
     }),
     db.refundPayment.findMany({
       where: {
-        method: CASH_PAYMENT_METHOD,
         saleAdjustment: {
           shopId: session.shopId,
           createdByUserId: session.userId,
@@ -229,6 +236,7 @@ export async function buildCashSessionSummary(
         saleAdjustment: {
           select: {
             id: true,
+            saleId: true,
             adjustmentNumber: true,
             createdAt: true,
             createdByUser: {
@@ -275,6 +283,8 @@ export async function buildCashSessionSummary(
 
   let grossSalesTotal = 0;
   let cashSalesTotal = 0;
+  let instaPaySalesTotal = 0;
+  let walletSalesTotal = 0;
 
   for (const sale of sales) {
     grossSalesTotal += Number(sale.totalAmount);
@@ -312,29 +322,75 @@ export async function buildCashSessionSummary(
         amount: cashNet,
         note: sale.customerName ?? null,
         reference: sale.saleNumber,
+        referenceId: sale.id,
         userName: sale.cashierName ?? null
       });
+    }
+
+    const instaPayReceived = sale.payments.length
+      ? sale.payments
+          .filter((payment) => payment.method === 'انستا باي')
+          .reduce((sum, payment) => sum + Number(payment.amount), 0)
+      : sale.paymentMethod === 'انستا باي'
+        ? Number(sale.totalAmount)
+        : 0;
+    if (instaPayReceived > 0) {
+      instaPaySalesTotal = roundCurrency(instaPaySalesTotal + instaPayReceived);
+    }
+
+    const walletReceived = sale.payments.length
+      ? sale.payments
+          .filter((payment) => payment.method === 'محفظه الكترونيه')
+          .reduce((sum, payment) => sum + Number(payment.amount), 0)
+      : sale.paymentMethod === 'محفظه الكترونيه'
+        ? Number(sale.totalAmount)
+        : 0;
+    if (walletReceived > 0) {
+      walletSalesTotal = roundCurrency(walletSalesTotal + walletReceived);
     }
   }
 
   let refundCashTotal = 0;
+  let refundInstaPayTotal = 0;
+  let refundWalletTotal = 0;
 
   for (const refund of refunds) {
     const amount = roundCurrency(Number(refund.amount));
-    refundCashTotal = roundCurrency(refundCashTotal + amount);
+    if (refund.method === 'كاش') {
+      refundCashTotal = roundCurrency(refundCashTotal + amount);
+    } else if (refund.method === 'انستا باي') {
+      refundInstaPayTotal = roundCurrency(refundInstaPayTotal + amount);
+    } else if (refund.method === 'محفظه الكترونيه') {
+      refundWalletTotal = roundCurrency(refundWalletTotal + amount);
+    }
     timeline.push({
       id: `refund-${refund.id}`,
       type: 'REFUND',
-      label: 'Cash refund',
+      label: `${refund.method} refund`,
       occurredAt: refund.createdAt,
       amount: amount * -1,
       note: null,
       reference: refund.saleAdjustment.adjustmentNumber,
+      referenceId: refund.saleAdjustment.saleId,
       userName: getTimelineUserName(refund.saleAdjustment.createdByUser)
     });
   }
 
-  const movementTotals: Record<CashMovementType, number> = {
+  const cashMovementTotals = {
+    PAYOUT: 0,
+    CASH_DROP: 0,
+    PETTY_CASH: 0,
+    MANUAL_CORRECTION: 0
+  };
+
+  const instaPayMovementTotals = {
+    PAYOUT: 0,
+    CASH_DROP: 0,
+    PETTY_CASH: 0,
+    MANUAL_CORRECTION: 0
+  };
+
+  const walletMovementTotals = {
     PAYOUT: 0,
     CASH_DROP: 0,
     PETTY_CASH: 0,
@@ -343,11 +399,21 @@ export async function buildCashSessionSummary(
 
   for (const movement of movements) {
     const amount = roundCurrency(Number(movement.amount));
-    movementTotals[movement.type] = roundCurrency(movementTotals[movement.type] + amount);
+    const drawerType = movement.drawer || 'CASH';
+
+    if (drawerType === 'INSTAPAY') {
+      instaPayMovementTotals[movement.type] = roundCurrency(instaPayMovementTotals[movement.type] + amount);
+    } else if (drawerType === 'WALLET') {
+      walletMovementTotals[movement.type] = roundCurrency(walletMovementTotals[movement.type] + amount);
+    } else {
+      cashMovementTotals[movement.type] = roundCurrency(cashMovementTotals[movement.type] + amount);
+    }
+
+    const drawerLabel = drawerType === 'INSTAPAY' ? 'انستا باي' : drawerType === 'WALLET' ? 'محفظة' : 'كاش';
     timeline.push({
       id: `movement-${movement.id}`,
       type: movement.type,
-      label: getCashMovementLabel(movement.type),
+      label: `${getCashMovementLabel(movement.type)} (${drawerLabel})`,
       occurredAt: movement.createdAt,
       amount: getCashMovementSignedAmount(movement.type, amount),
       note: movement.note,
@@ -360,10 +426,28 @@ export async function buildCashSessionSummary(
     Number(session.openingFloat) +
       cashSalesTotal -
       refundCashTotal -
-      movementTotals.PAYOUT -
-      movementTotals.CASH_DROP -
-      movementTotals.PETTY_CASH +
-      movementTotals.MANUAL_CORRECTION
+      cashMovementTotals.PAYOUT -
+      cashMovementTotals.CASH_DROP -
+      cashMovementTotals.PETTY_CASH +
+      cashMovementTotals.MANUAL_CORRECTION
+  );
+
+  const expectedInstaPay = roundCurrency(
+    instaPaySalesTotal -
+      refundInstaPayTotal -
+      instaPayMovementTotals.PAYOUT -
+      instaPayMovementTotals.CASH_DROP -
+      instaPayMovementTotals.PETTY_CASH +
+      instaPayMovementTotals.MANUAL_CORRECTION
+  );
+
+  const expectedWallet = roundCurrency(
+    walletSalesTotal -
+      refundWalletTotal -
+      walletMovementTotals.PAYOUT -
+      walletMovementTotals.CASH_DROP -
+      walletMovementTotals.PETTY_CASH +
+      walletMovementTotals.MANUAL_CORRECTION
   );
 
   if (session.closingActual !== null && session.closingActual !== undefined) {
@@ -381,12 +465,25 @@ export async function buildCashSessionSummary(
 
   timeline.sort((left, right) => left.occurredAt.getTime() - right.occurredAt.getTime());
 
+  const movementTotals = {
+    PAYOUT: cashMovementTotals.PAYOUT + instaPayMovementTotals.PAYOUT + walletMovementTotals.PAYOUT,
+    CASH_DROP: cashMovementTotals.CASH_DROP + instaPayMovementTotals.CASH_DROP + walletMovementTotals.CASH_DROP,
+    PETTY_CASH: cashMovementTotals.PETTY_CASH + instaPayMovementTotals.PETTY_CASH + walletMovementTotals.PETTY_CASH,
+    MANUAL_CORRECTION: cashMovementTotals.MANUAL_CORRECTION + instaPayMovementTotals.MANUAL_CORRECTION + walletMovementTotals.MANUAL_CORRECTION
+  };
+
   return {
     expectedCash,
+    expectedInstaPay,
+    expectedWallet,
     salesCount: sales.length,
     grossSalesTotal: roundCurrency(grossSalesTotal),
     cashSalesTotal,
+    instaPaySalesTotal,
+    walletSalesTotal,
     refundCashTotal,
+    refundInstaPayTotal,
+    refundWalletTotal,
     paymentBreakdown: Array.from(paymentTotals.entries())
       .map(([method, amount]) => ({ method, amount }))
       .sort((left, right) => right.amount - left.amount),
@@ -396,6 +493,7 @@ export async function buildCashSessionSummary(
       type: movement.type,
       amount: Number(movement.amount),
       note: movement.note,
+      drawer: movement.drawer || 'CASH',
       createdAt: movement.createdAt,
       createdByName: movement.createdByUser.name ?? movement.createdByUser.email
     })),

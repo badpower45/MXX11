@@ -10,6 +10,7 @@ type CreateStockCountInput = {
   title?: string | null;
   notes?: string | null;
   isBlind: boolean;
+  countType?: 'ALL' | 'MOTORCYCLES' | 'SPARE_PARTS';
 };
 
 type SaveStockCountInput = {
@@ -22,6 +23,12 @@ type SaveStockCountInput = {
     id: string;
     actualQty: number | null;
     note?: string | null;
+  }>;
+  assigneeUserIds?: string[];
+  userEntries?: Array<{
+    productId: string;
+    assigneeId: string;
+    actualQty: number;
   }>;
 };
 
@@ -51,6 +58,54 @@ export const stockCountInclude = Prisma.validator<Prisma.StockCountInclude>()({
       id: true,
       name: true,
       email: true
+    }
+  },
+  assignees: {
+    include: {
+      user: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          memberships: {
+            select: {
+              id: true,
+              shopId: true
+            }
+          }
+        }
+      },
+      guestStaff: {
+        select: {
+          id: true,
+          name: true
+        }
+      }
+    }
+  },
+  userEntries: {
+    include: {
+      assignee: {
+        include: {
+          user: {
+            select: {
+              name: true,
+              email: true,
+              memberships: {
+                select: {
+                  id: true,
+                  shopId: true
+                }
+              }
+            }
+          },
+          guestStaff: {
+            select: {
+              name: true
+            }
+          }
+        }
+      }
     }
   }
 });
@@ -99,6 +154,31 @@ export function serializeStockCount(stockCount: StockCountWithDetail) {
           email: stockCount.approvedByUser.email
         }
       : null,
+    assignees: stockCount.assignees?.map((a) => {
+      const shopMembership = a.user?.memberships.find((m) => m.shopId === stockCount.shopId);
+      return {
+        id: shopMembership?.id ?? a.guestStaffId ?? a.id,
+        userId: a.userId,
+        guestStaffId: a.guestStaffId,
+        name: a.user ? (a.user.name || a.user.email) : (a.guestStaff?.name ?? 'N/A'),
+        email: a.user ? a.user.email : 'بدون حساب',
+        completedAt: a.completedAt?.toISOString() ?? null
+      };
+    }) ?? [],
+    userEntries: stockCount.userEntries?.map((e) => {
+      const name = e.assignee.user
+        ? (e.assignee.user.name || e.assignee.user.email)
+        : (e.assignee.guestStaff?.name ?? 'N/A');
+      return {
+        id: e.id,
+        productId: e.productId,
+        assigneeId: e.assignee.userId
+          ? e.assignee.user?.memberships.find((m) => m.shopId === stockCount.shopId)?.id || e.assignee.userId
+          : e.assignee.guestStaffId || '',
+        assigneeName: name,
+        actualQty: e.actualQty
+      };
+    }) ?? [],
     itemCount: stockCount.items.length,
     countedItemCount,
     items: stockCount.items.map((item) => ({
@@ -131,12 +211,20 @@ async function getStockCountForAction(tx: Prisma.TransactionClient, shopId: stri
 
 export async function createStockCount(input: CreateStockCountInput): Promise<StockCountWithDetail> {
   return prisma.$transaction(async (tx) => {
+    const productWhere: Prisma.ProductWhereInput = {
+      shopId: input.shopId,
+      isActive: true
+    };
+
+    if (input.countType === 'MOTORCYCLES') {
+      productWhere.productType = 'MOTORCYCLE';
+    } else if (input.countType === 'SPARE_PARTS') {
+      productWhere.productType = 'SPARE_PART';
+    }
+
     const [products, referenceNumber] = await Promise.all([
       tx.product.findMany({
-        where: {
-          shopId: input.shopId,
-          isActive: true
-        },
+        where: productWhere,
         orderBy: { name: 'asc' },
         select: {
           id: true,
@@ -207,8 +295,113 @@ export async function saveStockCountSheet(input: SaveStockCountInput): Promise<S
       throw new StockCountError('Only draft or in-progress counts can be edited.');
     }
 
-    if (stockCount.createdByUserId !== input.actorUserId && !canManageApproval(input.actorRole)) {
+    const isAssignee = await tx.stockCountAssignee.findFirst({
+      where: {
+        stockCountId: stockCount.id,
+        userId: input.actorUserId
+      }
+    });
+
+    if (
+      stockCount.createdByUserId !== input.actorUserId &&
+      !canManageApproval(input.actorRole) &&
+      !isAssignee
+    ) {
       throw new StockCountError('You do not have access to edit this stock count.', 403);
+    }
+
+    if (input.assigneeUserIds !== undefined) {
+      await tx.stockCountAssignee.deleteMany({
+        where: { stockCountId: stockCount.id }
+      });
+      if (input.assigneeUserIds.length > 0) {
+        const userShops = await tx.userShop.findMany({
+          where: { id: { in: input.assigneeUserIds } }
+        });
+        const guestStaffs = await tx.guestStaff.findMany({
+          where: { id: { in: input.assigneeUserIds } }
+        });
+
+        const userShopMap = new Map(userShops.map((u) => [u.id, u.userId]));
+        const guestMap = new Set(guestStaffs.map((g) => g.id));
+
+        const assigneeData = input.assigneeUserIds.map((id) => {
+          if (userShopMap.has(id)) {
+            return {
+              stockCountId: stockCount.id,
+              userId: userShopMap.get(id)!,
+              guestStaffId: null
+            };
+          } else if (guestMap.has(id)) {
+            return {
+              stockCountId: stockCount.id,
+              userId: null,
+              guestStaffId: id
+            };
+          }
+          return null;
+        }).filter(Boolean) as Array<{ stockCountId: string; userId: string | null; guestStaffId: string | null }>;
+
+        if (assigneeData.length > 0) {
+          await tx.stockCountAssignee.createMany({
+            data: assigneeData
+          });
+        }
+      }
+    }
+
+    if (input.userEntries && input.userEntries.length > 0) {
+      const uniqueAssigneeIds = [...new Set(input.userEntries.map((e) => e.assigneeId))];
+
+      const userShops = await tx.userShop.findMany({
+        where: { id: { in: uniqueAssigneeIds } }
+      });
+      const userShopMap = new Map(userShops.map((u) => [u.id, u.userId]));
+
+      const assignees = await tx.stockCountAssignee.findMany({
+        where: { stockCountId: stockCount.id }
+      });
+
+      for (const entry of input.userEntries) {
+        const resolvedUserId = userShopMap.get(entry.assigneeId) || null;
+        const assignee = assignees.find((a) => {
+          if (resolvedUserId) {
+            return a.userId === resolvedUserId;
+          } else {
+            return a.guestStaffId === entry.assigneeId;
+          }
+        });
+
+        if (assignee) {
+          await tx.stockCountUserEntry.upsert({
+            where: {
+              stockCountAssigneeId_productId: {
+                stockCountAssigneeId: assignee.id,
+                productId: entry.productId
+              }
+            },
+            update: {
+              actualQty: entry.actualQty
+            },
+            create: {
+              stockCountId: stockCount.id,
+              productId: entry.productId,
+              stockCountAssigneeId: assignee.id,
+              actualQty: entry.actualQty
+            }
+          });
+        }
+      }
+    }
+
+    const allUserEntries = await tx.stockCountUserEntry.findMany({
+      where: { stockCountId: stockCount.id }
+    });
+
+    const productSums = new Map<string, number>();
+    for (const entry of allUserEntries) {
+      const current = productSums.get(entry.productId) || 0;
+      productSums.set(entry.productId, current + entry.actualQty);
     }
 
     const itemMap = new Map(stockCount.items.map((item) => [item.id, item]));
@@ -227,6 +420,21 @@ export async function saveStockCountSheet(input: SaveStockCountInput): Promise<S
           note: normalizeText(item.note)
         }
       });
+    }
+
+    // Update stock count items based on entries sum
+    for (const item of stockCount.items) {
+      const counted = allUserEntries.some((e) => e.productId === item.productId);
+      if (counted) {
+        const actualQty = productSums.get(item.productId) || 0;
+        await tx.stockCountItem.update({
+          where: { id: item.id },
+          data: {
+            actualQty,
+            varianceQty: actualQty - item.expectedQty
+          }
+        });
+      }
     }
 
     const pendingItems = new Map(input.items.map((item) => [item.id, item]));
@@ -285,7 +493,18 @@ export async function transitionStockCount({
         throw new StockCountError('Only draft or in-progress counts can be submitted.');
       }
 
-      if (stockCount.createdByUserId !== actorUserId && !canManageApproval(actorRole)) {
+      const isAssignee = await tx.stockCountAssignee.findFirst({
+        where: {
+          stockCountId: stockCount.id,
+          userId: actorUserId
+        }
+      });
+
+      if (
+        stockCount.createdByUserId !== actorUserId &&
+        !canManageApproval(actorRole) &&
+        !isAssignee
+      ) {
         throw new StockCountError('You do not have access to submit this stock count.', 403);
       }
 

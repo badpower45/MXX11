@@ -9,3 +9,7 @@ prisma/dev.db
 *.tsbuildinfo
 public/uploads/products/*
 !public/uploads/products/.gitkeep
+.vercel
+.env*.local
+.DS_Store
+*.DS_Store

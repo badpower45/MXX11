@@ -4,6 +4,7 @@ import ReportsNav from '@/components/reports/ReportsNav';
 import Card from '@/components/ui/Card';
 import { requirePagePermission } from '@/lib/authz';
 import { compactNumber, dateTime, money } from '@/lib/format';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 import { getCashierReportData, getReportFilterOptions, parseReportFilters } from '@/lib/reporting';
 
 export default async function CashierReportsPage({
@@ -17,12 +18,14 @@ export default async function CashierReportsPage({
     getReportFilterOptions(shopId),
     getCashierReportData(shopId, filters)
   ]);
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Cashier Reports"
-        subtitle="Review revenue handled, basket behavior, refund and void activity, and drawer sessions in one operational cashier view."
+        title={t('reports.cashier.title')}
+        subtitle={t('reports.cashier.subtitle')}
       />
 
       <ReportsNav />
@@ -39,27 +42,27 @@ export default async function CashierReportsPage({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
-          <div className="text-sm text-stone-500">Revenue handled</div>
+          <div className="text-sm text-stone-500">{t('reports.cashier.revenueHandled')}</div>
           <div className="mt-2 text-3xl font-black text-stone-900">{money(report.summary.totalRevenue, options.currencySymbol)}</div>
         </Card>
         <Card>
-          <div className="text-sm text-stone-500">Sales count</div>
+          <div className="text-sm text-stone-500">{t('reports.cashier.salesCount')}</div>
           <div className="mt-2 text-3xl font-black text-stone-900">{compactNumber(report.summary.totalTransactions)}</div>
         </Card>
         <Card>
-          <div className="text-sm text-stone-500">Refund count</div>
-          <div className="mt-2 text-3xl font-black text-amber-700">{compactNumber(report.summary.refundCount)}</div>
+          <div className="text-sm text-stone-500">{t('reports.cashier.refundCount')}</div>
+          <div className="mt-2 text-3xl font-black text-sky-700">{compactNumber(report.summary.refundCount)}</div>
           <div className="mt-2 text-sm text-stone-500">{money(report.summary.refundTotal, options.currencySymbol)}</div>
         </Card>
         <Card>
-          <div className="text-sm text-stone-500">Void count</div>
+          <div className="text-sm text-stone-500">{t('reports.cashier.voidCount')}</div>
           <div className="mt-2 text-3xl font-black text-red-700">{compactNumber(report.summary.voidCount)}</div>
           <div className="mt-2 text-sm text-stone-500">{money(report.summary.voidTotal, options.currencySymbol)}</div>
         </Card>
       </div>
 
       <Card>
-        <h2 className="text-xl font-black text-stone-900">Cashier performance</h2>
+        <h2 className="text-xl font-black text-stone-900">{t('reports.cashier.cashierPerformance')}</h2>
         <div className="mt-4 space-y-3">
           {report.topCashiers.length ? report.topCashiers.map((entry) => (
             <div key={entry.cashierId} className="rounded-2xl border border-stone-200 p-4">
@@ -67,36 +70,39 @@ export default async function CashierReportsPage({
                 <div>
                   <div className="font-semibold text-stone-900">{entry.cashierName}</div>
                   <div className="text-sm text-stone-500">
-                    {entry.salesCount} sale(s) / {entry.shiftCount} shift(s)
+                    {t('reports.cashier.salesAndShifts', { sales: entry.salesCount, shifts: entry.shiftCount })}
                   </div>
                   <div className="text-xs text-stone-500">
-                    Refunds {entry.refundCount} / Voids {entry.voidCount}
+                    {t('reports.cashier.refundsAndVoids', { refunds: entry.refundCount, voids: entry.voidCount })}
                   </div>
                 </div>
                 <div className="text-right">
                   <div className="font-black text-stone-900">{money(entry.revenueHandled, options.currencySymbol)}</div>
                   <div className="text-sm text-stone-500">
-                    Avg basket {entry.averageBasketSize.toFixed(1)} item(s)
+                    {t('reports.cashier.averageBasket', { count: entry.averageBasketSize.toFixed(1) })}
                   </div>
                   <div className="text-xs text-stone-500">
-                    Avg ticket {money(entry.averageTicket, options.currencySymbol)}
+                    {t('reports.cashier.averageTicket', { value: money(entry.averageTicket, options.currencySymbol) })}
                   </div>
                   {entry.shiftCount ? (
                     <div className="text-xs text-stone-500">
-                      Shift actual {money(entry.shiftActual, options.currencySymbol)} / variance {money(entry.shiftVariance, options.currencySymbol)}
+                      {t('reports.cashier.shiftActualAndVariance', {
+                        actual: money(entry.shiftActual, options.currencySymbol),
+                        variance: money(entry.shiftVariance, options.currencySymbol)
+                      })}
                     </div>
                   ) : null}
                 </div>
               </div>
             </div>
-          )) : <div className="text-sm text-stone-500">No cashier sales matched that range.</div>}
+          )) : <div className="text-sm text-stone-500">{t('reports.cashier.noCashierSales')}</div>}
         </div>
       </Card>
 
       <Card>
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black text-stone-900">Shift totals</h2>
-          <div className="text-sm text-stone-500">{report.summary.shiftCount} session(s)</div>
+          <h2 className="text-xl font-black text-stone-900">{t('reports.cashier.shiftTotals')}</h2>
+          <div className="text-sm text-stone-500">{t('reports.cashier.sessionCount', { count: report.summary.shiftCount })}</div>
         </div>
         <div className="mt-4 space-y-3">
           {report.shiftSessions.length ? report.shiftSessions.map((entry) => (
@@ -105,59 +111,62 @@ export default async function CashierReportsPage({
                 <div>
                   <div className="font-semibold text-stone-900">{entry.cashierName}</div>
                   <div className="text-sm text-stone-500">
-                    Opened {dateTime(entry.openedAt)}{entry.closedAt ? ` / Closed ${dateTime(entry.closedAt)}` : ' / Still open'}
+                    {t('reports.cashier.openedAt', {
+                      opened: dateTime(entry.openedAt),
+                      closed: entry.closedAt ? t('reports.cashier.closedAt', { date: dateTime(entry.closedAt) }) : t('reports.cashier.stillOpen')
+                    })}
                   </div>
-                  <div className="text-xs text-stone-500">Status {entry.status}</div>
+                  <div className="text-xs text-stone-500">{t('reports.cashier.status', { status: entry.status })}</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-stone-500">Expected {money(entry.closingExpected, options.currencySymbol)}</div>
-                  <div className="font-black text-stone-900">Actual {money(entry.closingActual, options.currencySymbol)}</div>
+                  <div className="text-sm text-stone-500">{t('reports.cashier.expected', { value: money(entry.closingExpected, options.currencySymbol) })}</div>
+                  <div className="font-black text-stone-900">{t('reports.cashier.actual', { value: money(entry.closingActual, options.currencySymbol) })}</div>
                   <div className={`text-xs ${entry.variance < 0 ? 'text-red-700' : 'text-stone-500'}`}>
-                    Variance {money(entry.variance, options.currencySymbol)}
+                    {t('reports.cashier.variance', { value: money(entry.variance, options.currencySymbol) })}
                   </div>
                 </div>
               </div>
             </div>
-          )) : <div className="text-sm text-stone-500">No cash sessions opened in the selected range.</div>}
+          )) : <div className="text-sm text-stone-500">{t('reports.cashier.noCashSessions')}</div>}
         </div>
       </Card>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card>
-          <h2 className="text-xl font-black text-stone-900">Refund report</h2>
+          <h2 className="text-xl font-black text-stone-900">{t('reports.cashier.refundReport')}</h2>
           <div className="mt-4 space-y-3">
             {report.refunds.length ? report.refunds.map((entry) => (
-              <div key={entry.id} className="rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+              <div key={entry.id} className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-stone-900">{entry.adjustmentNumber} / {entry.saleNumber}</div>
-                    <div className="text-sm text-stone-600">{entry.type} by {entry.cashierName}</div>
+                    <div className="text-sm text-stone-600">{t('reports.cashier.adjustmentBy', { type: entry.type, cashier: entry.cashierName })}</div>
                     <div className="text-sm text-stone-500">{entry.reason}</div>
-                    <div className="mt-1 text-xs text-stone-500">Approved by {entry.approvedByName} / {dateTime(entry.createdAt)}</div>
+                    <div className="mt-1 text-xs text-stone-500">{t('reports.cashier.approvedBy', { name: entry.approvedByName, date: dateTime(entry.createdAt) })}</div>
                   </div>
-                  <div className="font-black text-amber-700">{money(entry.totalAmount, options.currencySymbol)}</div>
+                  <div className="font-black text-sky-700">{money(entry.totalAmount, options.currencySymbol)}</div>
                 </div>
               </div>
-            )) : <div className="text-sm text-stone-500">No refund or exchange adjustments in this range.</div>}
+            )) : <div className="text-sm text-stone-500">{t('reports.cashier.noRefundAdjustments')}</div>}
           </div>
         </Card>
 
         <Card>
-          <h2 className="text-xl font-black text-stone-900">Void report</h2>
+          <h2 className="text-xl font-black text-stone-900">{t('reports.cashier.voidReport')}</h2>
           <div className="mt-4 space-y-3">
             {report.voids.length ? report.voids.map((entry) => (
               <div key={entry.id} className="rounded-2xl border border-red-200 bg-red-50/60 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-stone-900">{entry.adjustmentNumber} / {entry.saleNumber}</div>
-                    <div className="text-sm text-stone-600">Voided by {entry.cashierName}</div>
+                    <div className="text-sm text-stone-600">{t('reports.cashier.voidedBy', { cashier: entry.cashierName })}</div>
                     <div className="text-sm text-stone-500">{entry.reason}</div>
-                    <div className="mt-1 text-xs text-stone-500">Approved by {entry.approvedByName} / {dateTime(entry.createdAt)}</div>
+                    <div className="mt-1 text-xs text-stone-500">{t('reports.cashier.approvedBy', { name: entry.approvedByName, date: dateTime(entry.createdAt) })}</div>
                   </div>
                   <div className="font-black text-red-700">{money(entry.totalAmount, options.currencySymbol)}</div>
                 </div>
               </div>
-            )) : <div className="text-sm text-stone-500">No void adjustments in this range.</div>}
+            )) : <div className="text-sm text-stone-500">{t('reports.cashier.noVoidAdjustments')}</div>}
           </div>
         </Card>
       </div>

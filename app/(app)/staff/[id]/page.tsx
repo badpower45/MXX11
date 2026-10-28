@@ -5,6 +5,7 @@ import { requirePagePermission } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { serializeAuthAuditLog, serializeStaffListItem } from '@/lib/serializers/staff';
 import { getManagedShops } from '@/lib/staff';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function StaffDetailPage({
   params
@@ -13,6 +14,8 @@ export default async function StaffDetailPage({
 }) {
   const { id } = await params;
   const { userId } = await requirePagePermission('MANAGE_STAFF');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
   const shops = await getManagedShops(userId);
   const shopIds = shops.map((entry) => entry.id);
 
@@ -54,33 +57,92 @@ export default async function StaffDetailPage({
     }
   });
 
-  if (!membership) {
-    notFound();
-  }
+  let serialized: any;
+  let authActivity: any[] = [];
+  let name = '';
+  let email = '';
+  let hasPin = false;
+  let pinSetAt = null;
+  let emailVerifiedAt = null;
+  let forcePasswordReset = false;
+  let lockedUntil = null;
 
-  const serialized = serializeStaffListItem({
-    ...membership,
-    user: {
-      ...membership.user,
-      authAuditLogs: membership.user.authAuditLogs.filter((log) => log.action === 'LOGIN_SUCCESS')
+  if (!membership) {
+    const guest = await prisma.guestStaff.findFirst({
+      where: {
+        id,
+        shopId: { in: shopIds }
+      },
+      include: {
+        shop: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        }
+      }
+    });
+
+    if (!guest) {
+      notFound();
     }
-  });
+
+    serialized = {
+      id: guest.id,
+      userId: '',
+      name: guest.name,
+      email: 'بدون حساب',
+      role: 'STOCK_COUNTER' as const,
+      shopId: guest.shopId,
+      shopName: guest.shop.name,
+      shopSlug: guest.shop.slug,
+      isActive: guest.isActive,
+      assignedAt: guest.createdAt.toISOString(),
+      disabledAt: null,
+      lastLogin: null,
+      customPermissions: [],
+      baseSalary: null,
+      commissionRate: null
+    };
+
+    name = guest.name;
+    email = 'بدون حساب';
+  } else {
+    const regularSerialized = serializeStaffListItem({
+      ...membership,
+      user: {
+        ...membership.user,
+        authAuditLogs: membership.user.authAuditLogs.filter((log) => log.action === 'LOGIN_SUCCESS')
+      }
+    });
+
+    serialized = regularSerialized;
+    authActivity = membership.user.authAuditLogs.map(serializeAuthAuditLog);
+    hasPin = Boolean(membership.staffPinHash);
+    pinSetAt = membership.pinSetAt?.toISOString() ?? null;
+    emailVerifiedAt = membership.user.emailVerifiedAt?.toISOString() ?? null;
+    forcePasswordReset = membership.user.forcePasswordReset;
+    lockedUntil = membership.user.lockedUntil?.toISOString() ?? null;
+    name = membership.user.name ?? membership.user.email;
+    email = membership.user.email;
+  }
 
   return (
     <div className="space-y-6">
       <AppHeader
-        title={membership.user.name ?? membership.user.email}
-        subtitle="Review this staff profile, adjust the current assignment, generate a reset link, and inspect recent auth activity."
+        title={name}
+        subtitle={t('staff.detail.subtitle')}
       />
       <StaffDetailManager
         initialStaff={{
           ...serialized,
-          authActivity: membership.user.authAuditLogs.map(serializeAuthAuditLog),
-          hasPin: Boolean(membership.staffPinHash),
-          pinSetAt: membership.pinSetAt?.toISOString() ?? null,
-          emailVerifiedAt: membership.user.emailVerifiedAt?.toISOString() ?? null,
-          forcePasswordReset: membership.user.forcePasswordReset,
-          lockedUntil: membership.user.lockedUntil?.toISOString() ?? null
+          authActivity,
+          hasPin,
+          pinSetAt,
+          emailVerifiedAt,
+          forcePasswordReset,
+          lockedUntil
         }}
         shops={shops}
       />

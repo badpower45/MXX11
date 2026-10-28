@@ -18,7 +18,8 @@ import {
   payableStatusTone,
   purchaseStatusTone
 } from '@/lib/purchases';
-import { summarizeConversions } from '@/lib/uom';
+import { summarizeConversions } from '@/lib/uom-utils';
+import { useLocalizedPath, useTranslations } from '@/lib/i18n/client';
 
 type Supplier = { id: string; name: string };
 type UnitOfMeasure = { id: string; code: string; name: string; isBase: boolean };
@@ -162,18 +163,15 @@ function getAvailableStatusActions(status: string) {
   }
 }
 
-function getStatusButtonLabel(status: string) {
+function getStatusButtonLabel(status: string, t: any) {
   switch (status) {
     case 'SENT':
-      return 'Mark as order sent';
     case 'DRAFT':
-      return 'Move back to awaiting send';
     case 'CANCELLED':
-      return 'Cancel purchase';
     case 'CLOSED':
-      return 'Close purchase';
+      return t('action_' + status);
     default:
-      return getPurchaseStatusLabel(status);
+      return t('status_' + status);
   }
 }
 
@@ -219,6 +217,8 @@ export default function PurchaseManager({
   purchases: Purchase[];
   currencySymbol: string;
 }) {
+  const t = useTranslations('purchases');
+  const lp = useLocalizedPath();
   const [history, setHistory] = useState(purchases);
   const [supplierId, setSupplierId] = useState(suppliers[0]?.id ?? '');
   const [status, setStatus] = useState<CreatePurchaseStatus>('DRAFT');
@@ -273,8 +273,8 @@ export default function PurchaseManager({
   const lineTotal = lines.reduce((sum, line) => sum + line.qty * line.unitCost, 0);
   const canCreatePurchase = suppliers.length > 0 && products.length > 0;
   const missingSetup = [
-    suppliers.length === 0 ? { href: '/suppliers', label: 'Add a supplier' } : null,
-    products.length === 0 ? { href: '/products', label: 'Add a product' } : null
+    suppliers.length === 0 ? { href: lp('/suppliers'), label: t('addSupplier') } : null,
+    products.length === 0 ? { href: lp('/products'), label: t('addProduct') } : null
   ].filter((item): item is { href: string; label: string } => Boolean(item));
 
   function replacePurchase(updatedPurchase: Purchase) {
@@ -288,12 +288,12 @@ export default function PurchaseManager({
     setSuccess('');
 
     if (!selectedProduct) {
-      setError('Please select a product.');
+      setError(t('selectProductError'));
       return;
     }
 
     if (!selectedUnit) {
-      setError('Select a purchase unit.');
+      setError(t('selectUnitError'));
       return;
     }
 
@@ -301,12 +301,12 @@ export default function PurchaseManager({
     const parsedCost = Number(unitCost);
 
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
-      setError('Quantity must be greater than zero.');
+      setError(t('qtyPositiveError'));
       return;
     }
 
     if (!Number.isFinite(parsedCost) || parsedCost < 0) {
-      setError('Unit cost must be zero or greater.');
+      setError(t('costPositiveError'));
       return;
     }
 
@@ -355,12 +355,12 @@ export default function PurchaseManager({
     setSuccess('');
 
     if (!supplierId) {
-      setError('Please select a supplier.');
+      setError(t('selectSupplierError'));
       return;
     }
 
     if (!lines.length) {
-      setError('Add at least one purchase line.');
+      setError(t('addOneLineError'));
       return;
     }
 
@@ -382,11 +382,11 @@ export default function PurchaseManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to create purchase.' }));
+    const data = await response.json().catch(() => ({ error: t('failedCreate') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to create purchase.');
+      setError(data.error ?? t('failedCreate'));
       return;
     }
 
@@ -396,10 +396,10 @@ export default function PurchaseManager({
     setStatus('DRAFT');
     setSuccess(
       status === 'FULLY_RECEIVED'
-        ? 'Purchase created and fully received.'
+        ? t('purchaseCreatedFullyReceived')
         : status === 'SENT'
-          ? 'Purchase order created and marked as sent.'
-          : 'Purchase saved as awaiting send.'
+          ? t('purchaseOrderCreatedSent')
+          : t('purchaseSavedAwaiting')
     );
   }
 
@@ -414,16 +414,16 @@ export default function PurchaseManager({
       body: JSON.stringify({ action: 'UPDATE_STATUS', status: nextStatus })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to update purchase.' }));
+    const data = await response.json().catch(() => ({ error: t('failedUpdate') }));
     setBusyPurchaseId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to update purchase.');
+      setError(data.error ?? t('failedUpdate'));
       return;
     }
 
     replacePurchase(data.purchase);
-    setSuccess(`Purchase ${getStatusButtonLabel(nextStatus).toLowerCase()}.`);
+    setSuccess(t('purchaseUpdated'));
   }
 
   async function receivePurchase(purchase: Purchase) {
@@ -436,7 +436,7 @@ export default function PurchaseManager({
       .filter((item) => Number.isFinite(item.qtyReceived) && item.qtyReceived > 0);
 
     if (!items.length) {
-      setError('Enter a quantity for at least one item before saving the delivery.');
+      setError(t('deliveryQtyError'));
       return;
     }
 
@@ -455,11 +455,11 @@ export default function PurchaseManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to record receipt.' }));
+    const data = await response.json().catch(() => ({ error: t('failedRecordReceipt') }));
     setBusyPurchaseId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to record receipt.');
+      setError(data.error ?? t('failedRecordReceipt'));
       return;
     }
 
@@ -469,7 +469,7 @@ export default function PurchaseManager({
       [purchase.id]: initializeReceiptDraft(data.purchase)
     }));
     setActiveReceiptId(null);
-    setSuccess('Delivery received and inventory updated.');
+    setSuccess(t('deliverySuccess'));
   }
 
   async function saveInvoice(purchase: Purchase) {
@@ -492,11 +492,11 @@ export default function PurchaseManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to save supplier invoice.' }));
+    const data = await response.json().catch(() => ({ error: t('failedSaveInvoice') }));
     setBusyPurchaseId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to save supplier invoice.');
+      setError(data.error ?? t('failedSaveInvoice'));
       return;
     }
 
@@ -506,7 +506,7 @@ export default function PurchaseManager({
       [purchase.id]: initializeInvoiceDraft(data.purchase)
     }));
     setActiveInvoiceId(null);
-    setSuccess(purchase.supplierInvoice ? 'Supplier invoice updated.' : 'Supplier invoice recorded.');
+    setSuccess(purchase.supplierInvoice ? t('invoiceUpdated') : t('invoiceRecorded'));
   }
 
   async function recordPayment(purchase: Purchase) {
@@ -528,11 +528,11 @@ export default function PurchaseManager({
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to record supplier payment.' }));
+    const data = await response.json().catch(() => ({ error: t('failedRecordPayment') }));
     setBusyPurchaseId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to record supplier payment.');
+      setError(data.error ?? t('failedRecordPayment'));
       return;
     }
 
@@ -542,20 +542,20 @@ export default function PurchaseManager({
       [purchase.id]: initializePaymentDraft(data.purchase.supplierInvoice)
     }));
     setActivePaymentId(null);
-    setSuccess('Supplier payment recorded.');
+    setSuccess(t('paymentRecorded'));
   }
 
   return (
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <Card>
-        <div id="record-purchase" className="mb-4 text-lg font-black text-stone-900">Purchase order entry</div>
+        <div id="record-purchase" className="mb-4 text-lg font-black text-stone-900">{t('entryTitle')}</div>
         {!canCreatePurchase ? (
           <div className="space-y-4 rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-5 text-sm text-stone-600">
-            <div className="font-semibold text-stone-900">New purchase orders are unavailable until the branch has supplier and product records.</div>
-            <div>Complete the missing setup below, then return here to create operational purchase orders without relying on starter data.</div>
+            <div className="font-semibold text-stone-900">{t('noSupplierAndProductSetup')}</div>
+            <div>{t('completeSetupCta')}</div>
             <div className="flex flex-wrap gap-3">
               {missingSetup.map((item) => (
-                <Link key={item.href} href={item.href} className="font-semibold text-emerald-700 hover:text-emerald-800">
+                <Link key={item.href} href={item.href} className="font-semibold text-blue-700 hover:text-blue-800">
                   {item.label}
                 </Link>
               ))}
@@ -580,9 +580,9 @@ export default function PurchaseManager({
               value={status}
               onChange={(event) => setStatus(event.target.value as CreatePurchaseStatus)}
             >
-              <option value="DRAFT">Save as awaiting send</option>
-              <option value="SENT">Save as order sent</option>
-              <option value="FULLY_RECEIVED">Create and receive immediately</option>
+              <option value="DRAFT">{t('saveAsAwaiting')}</option>
+              <option value="SENT">{t('saveAsOrderSent')}</option>
+              <option value="FULLY_RECEIVED">{t('createAndReceive')}</option>
             </select>
 
             <div className="grid gap-3 md:grid-cols-4">
@@ -621,7 +621,11 @@ export default function PurchaseManager({
 
             {selectedProduct ? (
               <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-                Current stock for <span className="font-semibold text-stone-900">{selectedProduct.name}</span>: {selectedProduct.stockQty} {selectedProduct.baseUnitOfMeasure?.name.toLowerCase() ?? 'base units'}
+                {t('currentStockFor', {
+                  name: selectedProduct.name,
+                  qty: selectedProduct.stockQty,
+                  unit: selectedProduct.baseUnitOfMeasure?.name ?? t('baseUnits')
+                })}
                 <div className="mt-1 text-xs text-stone-500">
                   {summarizeConversions(
                     selectedProduct.uomConversions.map((conversion) => ({
@@ -633,16 +637,21 @@ export default function PurchaseManager({
                 </div>
                 {selectedUnit ? (
                   <div className="mt-1 text-xs text-stone-500">
-                    Receipt preview: {qty || '0'} {selectedUnit.unitName.toLowerCase()}{Number(qty) === 1 ? '' : 's'} = {(Number(qty) || 0) * selectedUnit.ratioToBase} {selectedProduct.baseUnitOfMeasure?.name.toLowerCase() ?? 'base units'}
+                    {t('receiptPreview', {
+                      qty: qty || '0',
+                      unit: selectedUnit.unitName,
+                      baseQty: (Number(qty) || 0) * selectedUnit.ratioToBase,
+                      baseUnit: selectedProduct.baseUnitOfMeasure?.name ?? t('baseUnits')
+                    })}
                   </div>
                 ) : null}
               </div>
             ) : null}
 
-            <Button type="button" variant="secondary" onClick={addLine}>Add line</Button>
+            <Button type="button" variant="secondary" onClick={addLine}>{t('addLine')}</Button>
             <textarea
-              className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-              placeholder="Purchase notes"
+              className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              placeholder={t('notesPlaceholder')}
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
             />
@@ -652,40 +661,40 @@ export default function PurchaseManager({
                 lines.map((line) => (
                   <div key={`${line.productId}-${line.unitOfMeasureId}`} className="flex items-center justify-between gap-3 text-sm text-stone-700">
                     <span>
-                      {line.productName} | {line.qty} {line.unitName.toLowerCase()}{line.qty === 1 ? '' : 's'} x {money(line.unitCost, currencySymbol)}
+                      {line.productName} | {line.qty} {line.unitName} x {money(line.unitCost, currencySymbol)}
                       <span className="ml-2 text-xs text-stone-500">
-                        ({line.receivedBaseQty} base units)
+                        ({line.receivedBaseQty} {selectedProduct?.baseUnitOfMeasure?.name ?? t('baseUnits')})
                       </span>
                     </span>
                     <div className="flex items-center gap-3">
                       <span>{money(line.qty * line.unitCost, currencySymbol)}</span>
                       <Button type="button" variant="ghost" onClick={() => removeLine(line.productId, line.unitOfMeasureId)}>
-                        Remove
+                        {t('remove')}
                       </Button>
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-stone-500">No lines added yet. Add one or more products to build the purchase order.</div>
+                <div className="text-sm text-stone-500">{t('noLines')}</div>
               )}
             </div>
 
             <div className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-              Estimated total: <span className="font-semibold text-stone-950">{money(lineTotal, currencySymbol)}</span>
+              {t('estimatedTotal')}: <span className="font-semibold text-stone-950">{money(lineTotal, currencySymbol)}</span>
             </div>
 
             {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-            {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+            {success ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div> : null}
 
             <Button onClick={createPurchase} disabled={!lines.length || loading}>
-              {loading ? 'Saving purchase...' : 'Save purchase'}
+              {loading ? t('savingPurchase') : t('savePurchase')}
             </Button>
           </div>
         )}
       </Card>
 
       <Card>
-        <div className="mb-4 text-lg font-black text-stone-900">Purchase history</div>
+        <div className="mb-4 text-lg font-black text-stone-900">{t('historyTitle')}</div>
         <div className="space-y-4">
           {history.length ? (
             history.map((purchase) => {
@@ -700,20 +709,20 @@ export default function PurchaseManager({
                       <div className="font-semibold text-stone-900">{purchase.purchaseNumber}</div>
                       <div className="text-sm text-stone-500">{purchase.supplier.name}</div>
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <Badge tone={purchaseStatusTone(purchase.status)}>{getPurchaseStatusLabel(purchase.status)}</Badge>
-                        <Badge tone="blue">{purchase.items.length} line(s)</Badge>
+                        <Badge tone={purchaseStatusTone(purchase.status)}>{t('status_' + purchase.status)}</Badge>
+                        <Badge tone="blue">{t('linesCount', { count: purchase.items.length })}</Badge>
                         {invoice?.payableEntry ? (
                           <Badge tone={payableStatusTone(invoice.payableEntry.status)}>
-                            {getPayableStatusLabel(invoice.payableEntry.status)}
+                            {t('payable_' + invoice.payableEntry.status)}
                           </Badge>
                         ) : null}
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="font-black text-stone-900">{money(purchase.totalAmount, currencySymbol)}</div>
-                      <div className="text-xs text-stone-500">Created {dateTime(purchase.createdAt)}</div>
+                      <div className="text-xs text-stone-500">{t('createdDate', { date: dateTime(purchase.createdAt) })}</div>
                       {purchase.receivedAt ? (
-                        <div className="text-xs text-stone-500">Last receipt {dateTime(purchase.receivedAt)}</div>
+                        <div className="text-xs text-stone-500">{t('lastReceiptDate', { date: dateTime(purchase.receivedAt) })}</div>
                       ) : null}
                     </div>
                   </div>
@@ -730,10 +739,10 @@ export default function PurchaseManager({
                             <div>
                               <div className="font-semibold text-stone-900">{item.productName}</div>
                               <div className="text-xs text-stone-500">
-                                Ordered {item.qty} {item.unitName.toLowerCase()}{item.qty === 1 ? '' : 's'} / Received {receivedUnits} / Remaining {remainingUnits}
+                                {t('orderedQtyInfo', { qty: item.qty, unit: item.unitName, received: receivedUnits, remaining: remainingUnits })}
                               </div>
                               <div className="mt-1 text-xs text-stone-500">
-                                Remaining base qty: {remainingBaseQty}
+                                {t('remainingBaseQty', { qty: remainingBaseQty })}
                               </div>
                             </div>
                             <div className="text-sm font-semibold text-stone-700">
@@ -746,7 +755,7 @@ export default function PurchaseManager({
                   </div>
 
                   {purchase.notes ? (
-                    <div className="mt-3 text-sm text-stone-500">Notes: {purchase.notes}</div>
+                    <div className="mt-3 text-sm text-stone-500">{t('notesLabel', { notes: purchase.notes })}</div>
                   ) : null}
 
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -758,11 +767,11 @@ export default function PurchaseManager({
                         onClick={() => updateStatus(purchase.id, nextStatus)}
                         disabled={busyPurchaseId === purchase.id}
                       >
-                        {getStatusButtonLabel(nextStatus)}
+                        {getStatusButtonLabel(nextStatus, t)}
                       </Button>
                     ))}
                     {isReceivable(purchase.status) ? (
-                      <Button
+                        <Button
                         type="button"
                         onClick={() => {
                           setReceiptDrafts((current) => ({
@@ -773,7 +782,7 @@ export default function PurchaseManager({
                         }}
                         disabled={busyPurchaseId === purchase.id}
                       >
-                        Receive delivery
+                        {t('receiveDelivery')}
                       </Button>
                     ) : null}
                     {purchase.status !== 'CANCELLED' ? (
@@ -789,7 +798,7 @@ export default function PurchaseManager({
                         }}
                         disabled={busyPurchaseId === purchase.id}
                       >
-                        {purchase.supplierInvoice ? 'Edit invoice' : 'Add invoice'}
+                        {t('saveInvoice')}
                       </Button>
                     ) : null}
                     {invoice ? (
@@ -805,14 +814,14 @@ export default function PurchaseManager({
                         }}
                         disabled={busyPurchaseId === purchase.id || outstandingBalance <= 0}
                       >
-                        Record payment
+                        {t('recordPayment')}
                       </Button>
                     ) : null}
                   </div>
 
                   {activeReceiptId === purchase.id ? (
                     <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                      <div className="text-sm font-semibold text-stone-900">Receive delivery</div>
+                        <div className="text-sm font-semibold text-stone-900">{t('receiveDelivery')}</div>
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <Input
                           type="date"
@@ -828,7 +837,7 @@ export default function PurchaseManager({
                           }
                         />
                         <Input
-                          placeholder="Delivery notes"
+                          placeholder={t('deliveryNotes')}
                           value={(receiptDrafts[purchase.id] ?? initializeReceiptDraft(purchase)).notes}
                           onChange={(event) =>
                             setReceiptDrafts((current) => ({
@@ -847,7 +856,7 @@ export default function PurchaseManager({
                             <div>
                               <div className="font-semibold text-stone-900">{item.productName}</div>
                               <div className="text-xs text-stone-500">
-                                Remaining {getPurchaseRemainingUnitQty(item)} {item.unitName.toLowerCase()}{getPurchaseRemainingUnitQty(item) === 1 ? '' : 's'}
+                                {t('remainingUnitQty', { qty: getPurchaseRemainingUnitQty(item), unit: item.unitName })}
                               </div>
                             </div>
                             <Input
@@ -873,10 +882,10 @@ export default function PurchaseManager({
                       </div>
                       <div className="mt-4 flex gap-2">
                         <Button type="button" onClick={() => receivePurchase(purchase)} disabled={busyPurchaseId === purchase.id}>
-                          {busyPurchaseId === purchase.id ? 'Saving receipt...' : 'Save receipt'}
+                          {busyPurchaseId === purchase.id ? t('savingReceipt') : t('saveReceipt')}
                         </Button>
                         <Button type="button" variant="ghost" onClick={() => setActiveReceiptId(null)}>
-                          Hide
+                          {t('hide')}
                         </Button>
                       </div>
                     </div>
@@ -885,10 +894,10 @@ export default function PurchaseManager({
                   <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold text-stone-900">Receive history</div>
-                        <div className="text-xs text-stone-500">Each delivery updates inventory only for what was actually received.</div>
+                        <div className="text-sm font-semibold text-stone-900">{t('receiveHistoryTitle')}</div>
+                        <div className="text-xs text-stone-500">{t('deliveryStatsUpdateMsg')}</div>
                       </div>
-                      <div className="text-xs text-stone-500">{purchase.receipts?.length ?? 0} receipt(s)</div>
+                      <div className="text-xs text-stone-500">{t('receiptsCount', { count: purchase.receipts?.length ?? 0 })}</div>
                     </div>
                     <div className="mt-3 space-y-3">
                       {purchase.receipts?.length ? (
@@ -898,7 +907,7 @@ export default function PurchaseManager({
                               <div>
                                 <div className="font-semibold text-stone-900">{dateTime(receipt.receivedAt)}</div>
                                 <div className="text-xs text-stone-500">
-                                  Received by {receipt.receivedByUser.name ?? receipt.receivedByUser.email}
+                                  {t('receivedBy', { user: receipt.receivedByUser.name ?? receipt.receivedByUser.email })}
                                 </div>
                               </div>
                               {receipt.notes ? <div className="text-sm text-stone-500">{receipt.notes}</div> : null}
@@ -907,14 +916,14 @@ export default function PurchaseManager({
                               {receipt.items.map((item) => (
                                 <div key={item.id} className="flex justify-between">
                                   <span>{item.product.name}</span>
-                                  <span>{item.qtyReceived} received</span>
+                                  <span>{t('qtyReceivedLabel', { qty: item.qtyReceived })}</span>
                                 </div>
                               ))}
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-stone-500">No deliveries recorded yet.</div>
+                        <div className="text-sm text-stone-500">{t('noDeliveries')}</div>
                       )}
                     </div>
                   </div>
@@ -922,12 +931,12 @@ export default function PurchaseManager({
                   <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-sm font-semibold text-stone-900">Supplier invoice and payable</div>
-                        <div className="text-xs text-stone-500">Keep invoice details and payment balance tied to this purchase.</div>
+                        <div className="text-sm font-semibold text-stone-900">{t('supplierInvoiceAndPayableTitle')}</div>
+                        <div className="text-xs text-stone-500">{t('supplierInvoiceAndPayableDesc')}</div>
                       </div>
                       {invoice?.payableEntry ? (
                         <div className="text-right">
-                          <div className="text-xs text-stone-500">Outstanding</div>
+                          <div className="text-xs text-stone-500">{t('outstanding')}</div>
                           <div className="font-black text-stone-900">{money(invoice.payableEntry.balance, currencySymbol)}</div>
                         </div>
                       ) : null}
@@ -940,24 +949,24 @@ export default function PurchaseManager({
                             <div className="font-semibold text-stone-900">{invoice.invoiceNumber}</div>
                             <div className="mt-1 flex flex-wrap gap-2">
                               <Badge tone={payableStatusTone(invoice.paymentStatus)}>
-                                {getPayableStatusLabel(invoice.paymentStatus)}
+                                {t('payable_' + invoice.paymentStatus)}
                               </Badge>
-                              <Badge tone="stone">Due {shortDate(invoice.dueDate)}</Badge>
+                              <Badge tone="stone">{t('dueLabel', { date: shortDate(invoice.dueDate) })}</Badge>
                             </div>
                           </div>
                           <div className="text-right text-sm text-stone-600">
-                            <div>Total {money(invoice.totalAmount, currencySymbol)}</div>
-                            <div>Paid {money(invoice.payableEntry?.amountPaid ?? '0', currencySymbol)}</div>
-                            <div>Balance {money(invoice.payableEntry?.balance ?? '0', currencySymbol)}</div>
+                            <div>{t('totalLabel', { amount: money(invoice.totalAmount, currencySymbol) })}</div>
+                            <div>{t('paidLabel', { amount: money(invoice.payableEntry?.amountPaid ?? '0', currencySymbol) })}</div>
+                            <div>{t('balanceLabel', { amount: money(invoice.payableEntry?.balance ?? '0', currencySymbol) })}</div>
                           </div>
                         </div>
                         <div className="mt-3 text-sm text-stone-500">
-                          Invoice date {shortDate(invoice.invoiceDate)}
+                          {t('invoiceDateLabel', { date: shortDate(invoice.invoiceDate) })}
                           {invoice.notes ? ` / ${invoice.notes}` : ''}
                         </div>
 
                         <div className="mt-4 space-y-2">
-                          <div className="text-sm font-semibold text-stone-900">Payment history</div>
+                          <div className="text-sm font-semibold text-stone-900">{t('paymentHistory')}</div>
                           {invoice.payments?.length ? (
                             invoice.payments.map((payment) => (
                               <div key={payment.id} className="flex flex-col gap-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700 md:flex-row md:items-center md:justify-between">
@@ -970,24 +979,24 @@ export default function PurchaseManager({
                                   </div>
                                 </div>
                                 <div className="text-xs text-stone-500">
-                                  {payment.referenceNumber ? `Ref ${payment.referenceNumber}` : 'No reference'}
+                                  {payment.referenceNumber ? t('refLabel', { ref: payment.referenceNumber }) : t('noRef')}
                                 </div>
                               </div>
                             ))
                           ) : (
-                            <div className="text-sm text-stone-500">No supplier payments recorded yet.</div>
+                            <div className="text-sm text-stone-500">{t('noPaymentsRecorded')}</div>
                           )}
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-3 text-sm text-stone-500">No supplier invoice recorded for this purchase yet.</div>
+                      <div className="text-sm text-stone-500">{t('noInvoiceRecorded')}</div>
                     )}
 
                     {activeInvoiceId === purchase.id ? (
                       <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
                         <div className="grid gap-3 md:grid-cols-2">
                           <Input
-                            placeholder="Invoice number"
+                            placeholder={t('invoiceNumber')}
                             value={(invoiceDrafts[purchase.id] ?? initializeInvoiceDraft(purchase)).invoiceNumber}
                             onChange={(event) =>
                               setInvoiceDrafts((current) => ({
@@ -1002,7 +1011,7 @@ export default function PurchaseManager({
                           <Input
                             type="number"
                             step="0.01"
-                            placeholder="Invoice total"
+                            placeholder={t('invoiceTotal')}
                             value={(invoiceDrafts[purchase.id] ?? initializeInvoiceDraft(purchase)).totalAmount}
                             onChange={(event) =>
                               setInvoiceDrafts((current) => ({
@@ -1042,8 +1051,8 @@ export default function PurchaseManager({
                           />
                         </div>
                         <textarea
-                          className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-                          placeholder="Invoice notes"
+                          className="mt-3 min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+                          placeholder={t('notesPlaceholder')}
                           value={(invoiceDrafts[purchase.id] ?? initializeInvoiceDraft(purchase)).notes}
                           onChange={(event) =>
                             setInvoiceDrafts((current) => ({
@@ -1057,10 +1066,10 @@ export default function PurchaseManager({
                         />
                         <div className="mt-4 flex gap-2">
                           <Button type="button" onClick={() => saveInvoice(purchase)} disabled={busyPurchaseId === purchase.id}>
-                            {busyPurchaseId === purchase.id ? 'Saving invoice...' : 'Save invoice'}
+                            {busyPurchaseId === purchase.id ? t('savingInvoice') : t('saveInvoice')}
                           </Button>
                           <Button type="button" variant="ghost" onClick={() => setActiveInvoiceId(null)}>
-                            Hide
+                            {t('hide')}
                           </Button>
                         </div>
                       </div>
@@ -1091,7 +1100,7 @@ export default function PurchaseManager({
                           <Input
                             type="number"
                             step="0.01"
-                            placeholder="Amount"
+                            placeholder={t('amount')}
                             value={(paymentDrafts[purchase.id] ?? initializePaymentDraft(invoice)).amount}
                             onChange={(event) =>
                               setPaymentDrafts((current) => ({
@@ -1104,7 +1113,7 @@ export default function PurchaseManager({
                             }
                           />
                           <Input
-                            placeholder="Reference number"
+                            placeholder={t('referenceNumber')}
                             value={(paymentDrafts[purchase.id] ?? initializePaymentDraft(invoice)).referenceNumber}
                             onChange={(event) =>
                               setPaymentDrafts((current) => ({
@@ -1132,10 +1141,10 @@ export default function PurchaseManager({
                         </div>
                         <div className="mt-4 flex gap-2">
                           <Button type="button" onClick={() => recordPayment(purchase)} disabled={busyPurchaseId === purchase.id}>
-                            {busyPurchaseId === purchase.id ? 'Saving payment...' : 'Record payment'}
+                            {busyPurchaseId === purchase.id ? t('savingPayment') : t('recordPayment')}
                           </Button>
                           <Button type="button" variant="ghost" onClick={() => setActivePaymentId(null)}>
-                            Hide
+                            {t('hide')}
                           </Button>
                         </div>
                       </div>
@@ -1145,7 +1154,7 @@ export default function PurchaseManager({
               );
             })
           ) : (
-            <div className="text-sm text-stone-500">No purchases recorded yet.</div>
+            <div className="text-sm text-stone-500">{t('noPurchasesRecorded')}</div>
           )}
         </div>
       </Card>

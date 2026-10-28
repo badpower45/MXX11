@@ -3,9 +3,12 @@ import SettingsForm from '@/components/settings/SettingsForm';
 import { requirePageRole } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { sanitizeDefaultPaymentMethods } from '@/lib/shop-settings';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function SettingsPage() {
   const { shopId } = await requirePageRole('MANAGER');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
   const [shop, settings] = await Promise.all([
     prisma.shop.findUnique({ where: { id: shopId } }),
     prisma.shopSetting.findUnique({ where: { shopId } })
@@ -18,8 +21,8 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Settings"
-        subtitle="Manage branch identity, receipt setup, tax behavior, inventory defaults, payment defaults, and document numbering from one practical admin screen."
+        title={t('settings.title')}
+        subtitle={t('settings.subtitle')}
       />
       <SettingsForm
         initialValues={{
@@ -29,11 +32,11 @@ export default async function SettingsPage() {
           email: shop.email,
           address: shop.address,
           taxId: shop.taxId,
-          timezone: settings?.timezone ?? 'Asia/Manila',
-          currencyCode: settings?.currencyCode ?? 'PHP',
-          currencySymbol: settings?.currencySymbol ?? '₱',
+          timezone: settings?.timezone ?? 'Africa/Cairo',
+          currencyCode: settings?.currencyCode ?? 'EGP',
+          currencySymbol: settings?.currencySymbol ?? 'ج.م ',
           taxMode: settings?.taxMode ?? 'EXCLUSIVE',
-          taxRate: settings?.taxRate.toString() ?? '0',
+          taxRate: settings?.taxRate?.toString() ?? '0',
           receiptHeader: settings?.receiptHeader ?? '',
           receiptFooter: settings?.receiptFooter ?? '',
           receiptWidth: settings?.receiptWidth === '58mm' ? '58mm' : '80mm',

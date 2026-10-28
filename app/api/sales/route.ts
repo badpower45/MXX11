@@ -13,6 +13,7 @@ import {
 import { getNextDocumentNumber } from '@/lib/document-sequence';
 import { collapseSaleItems, normalizeText, roundCurrency } from '@/lib/inventory';
 import {
+  getPaymentDrawerType,
   getSalePaymentSummaryLabel,
   validatePaymentsForSale
 } from '@/lib/payments';
@@ -151,7 +152,9 @@ export async function POST(request: Request) {
     const rawPayments = parsed.data.payments.map((payment) => ({
       method: payment.method,
       amount: Number(payment.amount),
-      referenceNumber: payment.referenceNumber ?? null
+      referenceNumber: payment.referenceNumber ?? null,
+      pullAmount: payment.pullAmount !== undefined && payment.pullAmount !== null ? Number(payment.pullAmount) : null,
+      adminFees: payment.adminFees !== undefined && payment.adminFees !== null ? Number(payment.adminFees) : 0
     }));
     const isCreditSale = parsed.data.isCreditSale;
     const creditDueDate = parseOptionalDateInput(parsed.data.creditDueDate);
@@ -202,12 +205,22 @@ export async function POST(request: Request) {
       }
     }
 
+    const activeShop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, linkedShopId: true }
+    });
+
+    const allowedShopIds = [shopId];
+    if (activeShop?.linkedShopId) {
+      allowedShopIds.push(activeShop.linkedShopId);
+    }
+
     const items = collapseSaleItems(parsed.data.items);
     const [settings, products, customer] = await Promise.all([
       prisma.shopSetting.findUnique({ where: { shopId } }),
       prisma.product.findMany({
         where: {
-          shopId,
+          shopId: { in: allowedShopIds },
           id: { in: items.map((item) => item.productId) }
         },
         include: {
@@ -234,6 +247,7 @@ export async function POST(request: Request) {
 
     const productMap = new Map(products.map((product) => [product.id, product]));
     const productQtyTotals = new Map<string, number>();
+    const variantQtyTotals = new Map<string, number>();
     const conflicts: SaleConflict[] = [];
 
     for (const item of items) {
@@ -270,7 +284,7 @@ export async function POST(request: Request) {
       const currentUnitPrice = Number(variant?.priceOverride ?? product.price);
       if (item.priceSnapshot !== null && item.priceSnapshot !== undefined) {
         const queuedPrice = roundCurrency(Number(item.priceSnapshot));
-        if (queuedPrice !== roundCurrency(currentUnitPrice)) {
+        if (product.productType !== 'MOTORCYCLE' && queuedPrice !== roundCurrency(currentUnitPrice)) {
           conflicts.push({
             type: 'PRICE_CHANGED',
             productId: item.productId,
@@ -283,7 +297,38 @@ export async function POST(request: Request) {
         }
       }
 
-      productQtyTotals.set(item.productId, (productQtyTotals.get(item.productId) ?? 0) + item.qty);
+      if (item.variantId) {
+        variantQtyTotals.set(item.variantId, (variantQtyTotals.get(item.variantId) ?? 0) + item.qty);
+      } else {
+        productQtyTotals.set(item.productId, (productQtyTotals.get(item.productId) ?? 0) + item.qty);
+      }
+    }
+
+    for (const [variantId, qty] of variantQtyTotals) {
+      let parentProduct = null;
+      let variant = null;
+      for (const p of products) {
+        const v = p.variants.find((entry) => entry.id === variantId);
+        if (v) {
+          parentProduct = p;
+          variant = v;
+          break;
+        }
+      }
+
+      if (parentProduct && variant) {
+        if (variant.stockQty < qty) {
+          conflicts.push({
+            type: 'INSUFFICIENT_STOCK',
+            productId: parentProduct.id,
+            variantId,
+            productName: `${parentProduct.name} (${buildVariantLabel(variant)})`,
+            requestedQty: qty,
+            availableQty: variant.stockQty,
+            message: `${parentProduct.name} (${buildVariantLabel(variant)}) has only ${variant.stockQty} item(s) available.`
+          });
+        }
+      }
     }
 
     for (const [productId, qty] of productQtyTotals) {
@@ -313,7 +358,22 @@ export async function POST(request: Request) {
     const saleLines = items.map((item) => {
       const product = productMap.get(item.productId)!;
       const variant = item.variantId ? product.variants.find((entry) => entry.id === item.variantId) ?? null : null;
-      const unitPrice = Number(variant?.priceOverride ?? product.price);
+      let unitPrice = Number(variant?.priceOverride ?? product.price);
+      if (product.productType === 'MOTORCYCLE' && item.priceSnapshot !== null && item.priceSnapshot !== undefined) {
+        unitPrice = Number(item.priceSnapshot);
+      }
+
+      if (product.productType === 'MOTORCYCLE') {
+        const totalCosts = Number(product.supplierPrice || 0) +
+          Number(product.assemblyCost || 0) +
+          Number(product.externalTransportCost || 0) +
+          Number(product.internalTransportCost || 0) +
+          Number(product.maintenanceCost || 0) +
+          Number(product.otherCosts || 0);
+        if (unitPrice < totalCosts) {
+          throw new Error('PRICE_FLOOR_VIOLATION');
+        }
+      }
 
       return {
         ...item,
@@ -378,22 +438,44 @@ export async function POST(request: Request) {
         throw new Error('LOYALTY_BALANCE_EXCEEDED');
       }
 
-      const saleNumber = await getNextDocumentNumber(tx, {
-        shopId,
-        type: DocumentSequenceType.SALE,
-        prefix: settings?.salePrefix ?? 'SAL'
-      });
-      const receiptNumber = await getNextDocumentNumber(tx, {
-        shopId,
-        type: DocumentSequenceType.RECEIPT,
-        prefix: settings?.receiptPrefix ?? 'RCP'
-      });
+      const [saleNumber, receiptNumber] = await Promise.all([
+        getNextDocumentNumber(tx, {
+          shopId,
+          type: DocumentSequenceType.SALE,
+          prefix: settings?.salePrefix ?? 'SAL'
+        }),
+        getNextDocumentNumber(tx, {
+          shopId,
+          type: DocumentSequenceType.RECEIPT,
+          prefix: settings?.receiptPrefix ?? 'RCP'
+        })
+      ]);
+
+      let salesmanCommission: number | null = null;
+      if (parsed.data.salesmanId) {
+        const salesmanShop = await tx.userShop.findFirst({
+          where: {
+            userId: parsed.data.salesmanId,
+            shopId,
+            isActive: true
+          },
+          select: {
+            commissionRate: true
+          }
+        });
+        if (salesmanShop) {
+          const rate = Number(salesmanShop.commissionRate || 0);
+          salesmanCommission = roundCurrency(totalAmount * (rate / 100));
+        }
+      }
 
       const saleRecord = await tx.sale.create({
         data: {
           shopId,
           cashierUserId: userId,
           customerId: customer?.id ?? null,
+          salesmanId: parsed.data.salesmanId || null,
+          salesmanCommission,
           saleNumber,
           receiptNumber,
           clientRequestId,
@@ -412,6 +494,13 @@ export async function POST(request: Request) {
           loyaltyDiscountAmount,
           notes: normalizeText(parsed.data.notes),
           cashierName: session.user.name || session.user.email || 'Cashier',
+          customerNationalId: normalizeText(parsed.data.customerNationalId),
+          customerNationalIdPhoto: normalizeText(parsed.data.customerNationalIdPhoto),
+          motorcycleColor: normalizeText(parsed.data.motorcycleColor),
+          motorcycleMotorNumber: normalizeText(parsed.data.motorcycleMotorNumber),
+          motorcycleChassisNumber: normalizeText(parsed.data.motorcycleChassisNumber),
+          motorcycleChassisPhoto: normalizeText(parsed.data.motorcycleChassisPhoto),
+          motorcycleMotorPhoto: normalizeText(parsed.data.motorcycleMotorPhoto),
           items: {
             create: saleLines.map((line) => ({
               productId: line.productId,
@@ -431,6 +520,7 @@ export async function POST(request: Request) {
                   method: payment.method,
                   amount: payment.amount,
                   referenceNumber: normalizeText(payment.referenceNumber),
+                  drawerType: getPaymentDrawerType(payment.method),
                   createdAt: occurredAt
                 }))
               }
@@ -439,113 +529,146 @@ export async function POST(request: Request) {
         include: { items: true }
       });
 
+      // --- Parallel: customer ledger entries + stock updates ---
+      const customerOps: Promise<unknown>[] = [];
       if (customer) {
         let nextBalance = currentLoyaltyBalance;
-
+        const ledgerRows: import('@prisma/client').Prisma.CustomerLoyaltyLedgerCreateManyInput[] = [];
         if (loyaltyPointsToRedeem > 0) {
           nextBalance -= loyaltyPointsToRedeem;
-          await tx.customerLoyaltyLedger.create({
-            data: {
-              shopId,
-              customerId: customer.id,
-              saleId: saleRecord.id,
-              type: 'REDEEMED',
-              points: loyaltyPointsToRedeem,
-              balanceAfter: nextBalance,
-              note: `Redeemed for sale ${saleRecord.saleNumber}.`,
-              createdAt: occurredAt
-            }
-          });
+          ledgerRows.push({ shopId, customerId: customer.id, saleId: saleRecord.id, type: 'REDEEMED', points: loyaltyPointsToRedeem, balanceAfter: nextBalance, note: `Redeemed for sale ${saleRecord.saleNumber}.`, createdAt: occurredAt });
         }
-
         if (pointsEarned > 0) {
           nextBalance += pointsEarned;
-          await tx.customerLoyaltyLedger.create({
-            data: {
-              shopId,
-              customerId: customer.id,
-              saleId: saleRecord.id,
-              type: 'EARNED',
-              points: pointsEarned,
-              balanceAfter: nextBalance,
-              note: `Earned from sale ${saleRecord.saleNumber}.`,
-              createdAt: occurredAt
-            }
-          });
+          ledgerRows.push({ shopId, customerId: customer.id, saleId: saleRecord.id, type: 'EARNED', points: pointsEarned, balanceAfter: nextBalance, note: `Earned from sale ${saleRecord.saleNumber}.`, createdAt: occurredAt });
         }
-
+        if (ledgerRows.length) {
+          customerOps.push(tx.customerLoyaltyLedger.createMany({ data: ledgerRows }));
+        }
         if (isCreditSale && creditDueDate) {
-          await tx.customerCreditLedger.create({
-            data: {
-              shopId,
-              customerId: customer.id,
-              saleId: saleRecord.id,
-              dueDate: creditDueDate,
-              originalAmount: totalAmount,
-              balance: totalAmount,
-              status: creditDueDate < new Date() ? 'OVERDUE' : 'OPEN',
-              createdAt: occurredAt
-            }
-          });
+          customerOps.push(tx.customerCreditLedger.create({ data: { shopId, customerId: customer.id, saleId: saleRecord.id, dueDate: creditDueDate, originalAmount: totalAmount, balance: totalAmount, status: creditDueDate < new Date() ? 'OVERDUE' : 'OPEN', createdAt: occurredAt } }));
         }
+      }
+
+      // Batch stock decrements and inventory movement inserts
+      const stockOps: Promise<unknown>[] = [];
+      const movementRows: import('@prisma/client').Prisma.InventoryMovementCreateManyInput[] = [];
+
+      for (const [variantId, qty] of variantQtyTotals) {
+        let parentProduct = null;
+        for (const p of products) {
+          if (p.variants.some((v) => v.id === variantId)) { parentProduct = p; break; }
+        }
+        if (!parentProduct) continue;
+        stockOps.push(tx.productVariant.update({ where: { id: variantId }, data: { stockQty: { decrement: qty } } }));
+        stockOps.push(tx.product.update({ where: { id: parentProduct.id }, data: { stockQty: { decrement: qty } } }));
+        movementRows.push({ shopId: parentProduct.shopId, productId: parentProduct.id, type: 'SALE_COMPLETED', qtyChange: qty * -1, referenceId: saleRecord.id, userId, notes: `Sale ${saleRecord.saleNumber} (Variant)`, createdAt: occurredAt });
       }
 
       for (const [productId, qty] of productQtyTotals) {
         const product = productMap.get(productId)!;
-        await tx.product.update({
-          where: { id: product.id },
-          data: {
-            stockQty: {
-              decrement: qty
-            }
-          }
-        });
+        stockOps.push(tx.product.update({ where: { id: product.id }, data: { stockQty: { decrement: qty } } }));
+        movementRows.push({ shopId: product.shopId, productId: product.id, type: 'SALE_COMPLETED', qtyChange: qty * -1, referenceId: saleRecord.id, userId, notes: `Sale ${saleRecord.saleNumber}`, createdAt: occurredAt });
+      }
 
-        await tx.inventoryMovement.create({
+      await Promise.all([
+        ...customerOps,
+        ...stockOps,
+        movementRows.length ? tx.inventoryMovement.createMany({ data: movementRows }) : Promise.resolve()
+      ]);
+
+
+
+      // 1. Create InstallmentCompanyDue records for installment payments (parallel)
+      const installmentMethods = ['امان', 'مايلو', 'موجو', 'فاليو', 'كونتاكت'];
+      const installmentOps = rawPayments
+        .filter((p) => installmentMethods.includes(p.method))
+        .map((payment) => {
+          const finalPullAmount = payment.pullAmount !== null ? payment.pullAmount : payment.amount;
+          const finalAdminFees = payment.adminFees;
+          const finalDueAmount = finalPullAmount - finalAdminFees;
+          const dueDate = new Date(occurredAt.getTime() + 15 * 24 * 60 * 60 * 1000);
+          return tx.installmentCompanyDue.create({
+            data: {
+              shopId,
+              saleId: saleRecord.id,
+              companyName: payment.method,
+              pullDate: occurredAt,
+              saleDate: occurredAt,
+              customerName: customer ? getCustomerDisplayName(customer) : (normalizeText(parsed.data.customerName) ?? 'N/A'),
+              customerPhone: customer ? customer.phone : (normalizeText(parsed.data.customerPhone) ?? null),
+              pullAmount: finalPullAmount,
+              saleAmount: payment.amount,
+              adminFees: finalAdminFees,
+              dueDate,
+              dueAmount: finalDueAmount
+            }
+          });
+        });
+      if (installmentOps.length) await Promise.all(installmentOps);
+      if (parsed.data.installmentCashbackAmount && parsed.data.installmentCashbackAmount > 0) {
+        const activeCashSession = await getActiveCashSession(tx, shopId, userId);
+        if (!activeCashSession) {
+          throw new Error('CASH_SESSION_REQUIRED_FOR_CASHBACK');
+        }
+
+        await tx.cashMovement.create({
           data: {
             shopId,
-            productId: product.id,
-            type: 'SALE_COMPLETED',
-            qtyChange: qty * -1,
-            referenceId: saleRecord.id,
-            userId,
-            notes: `Sale ${saleRecord.saleNumber}`,
+            cashSessionId: activeCashSession.id,
+            type: 'PAYOUT',
+            amount: parsed.data.installmentCashbackAmount,
+            note: `فائض سحب تقسيط مسترد كاش للعميل - فاتورة ${saleRecord.saleNumber}`,
+            createdByUserId: userId,
             createdAt: occurredAt
           }
         });
       }
 
-      await logActivity({
-        tx,
-        shopId,
-        userId,
-        action: clientRequestId ? 'SALE_SYNCED_FROM_OFFLINE_QUEUE' : 'SALE_COMPLETED',
-        entityType: 'Sale',
-        entityId: saleRecord.id,
-        description: clientRequestId
-          ? `Synced offline sale ${saleRecord.saleNumber}.`
-          : `Completed sale ${saleRecord.saleNumber}.`,
-        metadata: {
-          customerId: customer?.id ?? null,
-          customerName: customer ? getCustomerDisplayName(customer) : normalizeText(parsed.data.customerName),
-          itemCount: saleLines.reduce((sum, line) => sum + line.qty, 0),
-          variantLineCount: saleLines.filter((line) => line.variant).length,
-          paymentMethod: paymentMethodSummary,
-          paymentCount: paymentValidation.payments.length,
-          isCreditSale,
-          creditDueDate: creditDueDate?.toISOString() ?? null,
-          loyaltyPointsRedeemed: loyaltyPointsToRedeem,
-          loyaltyPointsEarned: pointsEarned,
-          totalAmount,
-          totalPaid: paymentValidation.summary.totalPaid,
-          changeDue: paymentValidation.summary.changeDue,
-          clientRequestId,
-          occurredAt: occurredAt.toISOString()
-        }
-      });
+      // 3. Create TrafficInvoice records for motorcycle sales
+      const hasMotorcycle = saleLines.some((line) => line.product.productType === 'MOTORCYCLE');
+      if (hasMotorcycle) {
+        await tx.trafficInvoice.create({
+          data: {
+            shopId,
+            saleId: saleRecord.id,
+            customerName: customer ? getCustomerDisplayName(customer) : (normalizeText(parsed.data.customerName) ?? 'N/A'),
+            status: 'PENDING_SEND'
+          }
+        });
+      }
 
       return saleRecord;
     });
+
+    // Fire-and-forget: activity log does not need to block the HTTP response
+    void logActivity({
+      shopId,
+      userId,
+      action: clientRequestId ? 'SALE_SYNCED_FROM_OFFLINE_QUEUE' : 'SALE_COMPLETED',
+      entityType: 'Sale',
+      entityId: sale.id,
+      description: clientRequestId
+        ? `Synced offline sale ${sale.saleNumber}.`
+        : `Completed sale ${sale.saleNumber}.`,
+      metadata: {
+        customerId: customer?.id ?? null,
+        customerName: customer ? getCustomerDisplayName(customer) : normalizeText(parsed.data.customerName),
+        itemCount: saleLines.reduce((sum, line) => sum + line.qty, 0),
+        variantLineCount: saleLines.filter((line) => line.variant).length,
+        paymentMethod: paymentMethodSummary,
+        paymentCount: paymentValidation.payments.length,
+        isCreditSale,
+        creditDueDate: creditDueDate?.toISOString() ?? null,
+        loyaltyPointsRedeemed: loyaltyPointsToRedeem,
+        loyaltyPointsEarned: pointsEarned,
+        totalAmount,
+        totalPaid: paymentValidation.summary.totalPaid,
+        changeDue: paymentValidation.summary.changeDue,
+        clientRequestId,
+        occurredAt: occurredAt.toISOString()
+      }
+    }).catch(console.error);
 
     return NextResponse.json(
       {
@@ -564,6 +687,20 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === 'LOYALTY_BALANCE_EXCEEDED') {
       return NextResponse.json(
         { error: 'Customer does not have enough loyalty points for this redemption.' },
+        { status: 400 }
+      );
+    }
+
+    if (error instanceof Error && error.message === 'CASH_SESSION_REQUIRED_FOR_CASHBACK') {
+      return NextResponse.json(
+        { error: 'Open a register session before recording drawer cashback.' },
+        { status: 409 }
+      );
+    }
+
+    if (error instanceof Error && error.message === 'PRICE_FLOOR_VIOLATION') {
+      return NextResponse.json(
+        { error: 'Cannot sell motorcycle below its total aggregated costs.' },
         { status: 400 }
       );
     }

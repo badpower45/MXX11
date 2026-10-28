@@ -74,7 +74,7 @@ export default async function BarcodeLabelsPage({
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-700">Barcode labels</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">Barcode labels</div>
             <h1 className="mt-2 text-3xl font-black text-stone-950">{displayName}</h1>
             <p className="mt-2 text-sm text-stone-500">Choose a label size, then print from this dedicated label sheet.</p>
           </div>
@@ -93,7 +93,7 @@ export default async function BarcodeLabelsPage({
               href={`/print/barcode-labels?productId=${product.id}${variant ? `&variantId=${variant.id}` : ''}&size=${candidate}&qty=${qty}`}
               className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                 candidate === size
-                  ? 'border-emerald-600 bg-emerald-600 text-white'
+                  ? 'border-blue-600 bg-blue-600 text-white'
                   : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'
               }`}
             >

@@ -2,9 +2,13 @@ import AppHeader from '@/components/layout/AppHeader';
 import ReturnsTable from '@/components/sales/ReturnsTable';
 import { getActiveShopContext } from '@/lib/auth/get-active-shop';
 import { prisma } from '@/lib/prisma';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function ReturnsPage() {
   const { shopId } = await getActiveShopContext();
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
+
   const [items, settings] = await Promise.all([
     prisma.saleAdjustment.findMany({
       where: { shopId },
@@ -47,8 +51,8 @@ export default async function ReturnsPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Returns"
-        subtitle="Track refunds, voids, exchanges, reasons, approvals, and receipt links from a single operational history screen."
+        title={t('returns.title')}
+        subtitle={t('returns.subtitle')}
       />
 
       <ReturnsTable
@@ -66,7 +70,7 @@ export default async function ReturnsPage() {
           approvedBy: item.approvedByUser.name ?? item.approvedByUser.email,
           itemCount: item.items.length
         }))}
-        currencySymbol={settings?.currencySymbol ?? 'â‚±'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
       />
     </div>
   );

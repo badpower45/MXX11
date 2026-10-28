@@ -48,7 +48,18 @@ async function createNotificationOncePerDay({
   });
 }
 
+const lastRunCache = new Map<string, number>();
+
 export async function ensureOperationalNotifications(shopId: string) {
+  if (shopId === 'dev-shop') {
+    return;
+  }
+  const now = Date.now();
+  const lastRun = lastRunCache.get(shopId) ?? 0;
+  if (now - lastRun < 15 * 60 * 1000) {
+    return;
+  }
+  lastRunCache.set(shopId, now);
   const settings = await prisma.shopSetting.findUnique({
     where: { shopId },
     select: {
@@ -120,7 +131,7 @@ export async function ensureOperationalNotifications(shopId: string) {
   );
 
   const purchaseCount = new Set(purchaseReceipts.map((receipt) => receipt.purchaseId)).size;
-  const currency = settings?.currencySymbol ?? 'PHP ';
+  const currency = settings?.currencySymbol ?? 'ج.م ';
 
   await createNotificationOncePerDay({
     shopId,
@@ -136,7 +147,34 @@ export function getNotificationHref(type: NotificationType | string) {
       return '/inventory';
     case 'DAILY_SUMMARY':
       return '/dashboard';
+    case 'SHIPMENT_ASSIGNED':
+    case 'SHIPMENT_STAGE_CHANGED':
+      return '/shipments';
     default:
       return '/activity';
   }
+}
+
+export async function sendUserNotification({
+  shopId,
+  userId,
+  type,
+  title,
+  message
+}: {
+  shopId: string;
+  userId?: string | null;
+  type: NotificationType;
+  title: string;
+  message: string;
+}) {
+  return prisma.notification.create({
+    data: {
+      shopId,
+      userId: userId || null,
+      type,
+      title,
+      message
+    }
+  });
 }

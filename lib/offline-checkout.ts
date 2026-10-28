@@ -82,6 +82,8 @@ export type OfflineQueuedSalePayload = {
     method: PaymentMethod;
     amount: number;
     referenceNumber: string | null;
+    pullAmount?: number | null;
+    adminFees?: number | null;
   }>;
   items: OfflineQueuedSaleItem[];
 };
@@ -122,6 +124,8 @@ export type OfflineCheckoutDraft = {
     method: PaymentMethod;
     amount: string;
     referenceNumber: string;
+    pullAmount?: string;
+    adminFees?: string;
   }>;
 };
 

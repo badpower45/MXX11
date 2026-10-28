@@ -26,6 +26,7 @@ type ReturnItemInput = {
   saleItemId: string;
   qty: number;
   disposition: 'RESTOCK' | 'DAMAGED';
+  newCost?: number | null;
 };
 
 type ReplacementItemInput = {
@@ -115,7 +116,18 @@ export const saleDetailInclude = Prisma.validator<Prisma.SaleInclude>()({
       email: true
     }
   },
-  items: true,
+  items: {
+    include: {
+      product: {
+        select: {
+          id: true,
+          productType: true,
+          condition: true,
+          cost: true
+        }
+      }
+    }
+  },
   payments: {
     orderBy: { createdAt: 'asc' }
   },
@@ -273,6 +285,7 @@ export function serializeSaleDetail(sale: SaleWithDetail) {
     refundableAmount: refundState.refundableAmount.toFixed(2),
     items: sale.items.map((item) => {
       const state = refundState.items.find((entry) => entry.saleItemId === item.id)!;
+      const productObj = (item as any).product;
       return {
         id: item.id,
         productId: item.productId,
@@ -283,7 +296,10 @@ export function serializeSaleDetail(sale: SaleWithDetail) {
         fullCreditAmount: state.fullCredit.toFixed(2),
         refundedQty: state.refundedQty,
         refundableQty: state.refundableQty,
-        refundableAmount: state.remainingCredit.toFixed(2)
+        refundableAmount: state.remainingCredit.toFixed(2),
+        productType: productObj?.productType ?? 'MOTORCYCLE',
+        condition: productObj?.condition ?? 'NEW',
+        cost: productObj?.cost ? productObj.cost.toString() : '0.00'
       };
     }),
     payments: sale.payments.map((payment) => ({
@@ -853,7 +869,8 @@ export async function createRefundSaleAdjustment(input: CreateRefundInput): Prom
         ...item,
         saleItem,
         lineCredit: roundCurrency(lineCredit),
-        unitCredit: item.qty > 0 ? roundCurrency(lineCredit / item.qty) : lineCredit
+        unitCredit: item.qty > 0 ? roundCurrency(lineCredit / item.qty) : lineCredit,
+        newCost: item.newCost
       };
     });
 
@@ -1037,13 +1054,28 @@ export async function createRefundSaleAdjustment(input: CreateRefundInput): Prom
 
     for (const item of selectedReturns) {
       if (item.disposition === 'RESTOCK') {
+        const product = await tx.product.findUnique({
+          where: { id: item.saleItem.productId }
+        });
+
+        const isMotorcycle = product?.productType === 'MOTORCYCLE';
+        const updateData: Prisma.ProductUpdateInput = {
+          stockQty: {
+            increment: item.qty
+          }
+        };
+
+        if (isMotorcycle) {
+          updateData.condition = 'USED';
+          const costValue = item.newCost !== undefined && item.newCost !== null
+            ? Number(item.newCost)
+            : item.unitCredit;
+          updateData.cost = costValue;
+        }
+
         await tx.product.update({
           where: { id: item.saleItem.productId },
-          data: {
-            stockQty: {
-              increment: item.qty
-            }
-          }
+          data: updateData
         });
 
         await tx.inventoryMovement.create({
@@ -1054,7 +1086,7 @@ export async function createRefundSaleAdjustment(input: CreateRefundInput): Prom
             qtyChange: item.qty,
             referenceId: adjustment.id,
             userId: input.createdByUserId,
-            notes: `${input.type} ${adjustment.adjustmentNumber} for ${sale.saleNumber}`
+            notes: `${input.type} ${adjustment.adjustmentNumber} for ${sale.saleNumber}${isMotorcycle ? ' (مرتجع موتوسيكل مستعمل)' : ''}`
           }
         });
       }

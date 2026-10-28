@@ -1,1 +1,1 @@
-process.env.TZ = 'Asia/Manila';
+process.env.TZ = 'Africa/Cairo';

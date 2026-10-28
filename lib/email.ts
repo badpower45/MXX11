@@ -61,7 +61,7 @@ function getMailTransport() {
 
 function getMailFrom() {
   const address = getRequiredEnv('MAIL_FROM_ADDRESS');
-  const name = process.env.MAIL_FROM_NAME?.trim() || 'Vertex POS';
+  const name = process.env.MAIL_FROM_NAME?.trim() || 'Volar';
   return `${name} <${address}>`;
 }
 
@@ -116,7 +116,7 @@ function escapeHtml(value: string) {
 }
 
 function getBrandName() {
-  return process.env.MAIL_BRAND_NAME?.trim() || 'Vertex POS';
+  return process.env.MAIL_BRAND_NAME?.trim() || 'Volar';
 }
 
 function wrapEmailHtml({ preview, title, bodyHtml, ctaLabel, ctaUrl, footerHtml }: {
@@ -142,9 +142,9 @@ function wrapEmailHtml({ preview, title, bodyHtml, ctaLabel, ctaUrl, footerHtml 
         <td align="center">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border-radius:24px;overflow:hidden;border:1px solid #e7e5e4;box-shadow:0 12px 32px rgba(0,0,0,0.08);">
             <tr>
-              <td style="padding:32px;background:linear-gradient(135deg,#059669,#047857);color:#ffffff;">
+              <td style="padding:32px;background:linear-gradient(135deg,#ff6600,#111111);color:#ffffff;">
                 <div style="font-size:28px;font-weight:800;letter-spacing:0.02em;">${escapeHtml(getBrandName())}</div>
-                <div style="margin-top:8px;font-size:14px;line-height:22px;color:#d1fae5;">Secure store operations for modern retail teams.</div>
+                <div style="margin-top:8px;font-size:14px;line-height:22px;color:#ffedd5;">Secure store operations for modern fashion and retail teams.</div>
               </td>
             </tr>
             <tr>
@@ -152,11 +152,11 @@ function wrapEmailHtml({ preview, title, bodyHtml, ctaLabel, ctaUrl, footerHtml 
                 <h1 style="margin:0 0 16px;font-size:28px;line-height:34px;color:#111827;">${escapeHtml(title)}</h1>
                 <div style="font-size:15px;line-height:26px;color:#44403c;">${bodyHtml}</div>
                 <div style="margin-top:28px;">
-                  <a href="${ctaUrl}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 22px;border-radius:14px;">${escapeHtml(ctaLabel)}</a>
+                  <a href="${ctaUrl}" style="display:inline-block;background:#ff6600;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 22px;border-radius:14px;">${escapeHtml(ctaLabel)}</a>
                 </div>
                 <div style="margin-top:24px;font-size:13px;line-height:22px;color:#78716c;word-break:break-word;">
                   If the button does not work, copy and paste this link into your browser:<br />
-                  <a href="${ctaUrl}" style="color:#059669;text-decoration:none;">${ctaUrl}</a>
+                  <a href="${ctaUrl}" style="color:#ff6600;text-decoration:none;">${ctaUrl}</a>
                 </div>
               </td>
             </tr>
@@ -209,7 +209,7 @@ export async function sendEmailVerificationEmail({
       `,
       ctaLabel: 'Verify email',
       ctaUrl: verificationUrl,
-      footerHtml: `If you did not create this account, you can safely ignore this email or contact <a href="mailto:${escapeHtml(getSupportEmail())}" style="color:#059669;text-decoration:none;">${escapeHtml(getSupportEmail())}</a>.`
+      footerHtml: `If you did not create this account, you can safely ignore this email or contact <a href="mailto:${escapeHtml(getSupportEmail())}" style="color:#2563eb;text-decoration:none;">${escapeHtml(getSupportEmail())}</a>.`
     })
   });
 }
@@ -256,7 +256,7 @@ export async function sendPasswordResetEmail({
       `,
       ctaLabel: 'Reset password',
       ctaUrl: resetUrl,
-      footerHtml: `If you were not expecting this email, contact <a href="mailto:${escapeHtml(getSupportEmail())}" style="color:#059669;text-decoration:none;">${escapeHtml(getSupportEmail())}</a> immediately.`
+      footerHtml: `If you were not expecting this email, contact <a href="mailto:${escapeHtml(getSupportEmail())}" style="color:#2563eb;text-decoration:none;">${escapeHtml(getSupportEmail())}</a> immediately.`
     })
   });
 }

@@ -15,9 +15,9 @@ import { prisma } from '@/lib/prisma';
 function toneClasses(tone: string) {
   switch (tone) {
     case 'emerald':
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+      return 'border-blue-200 bg-blue-50 text-blue-700';
     case 'amber':
-      return 'border-amber-200 bg-amber-50 text-amber-700';
+      return 'border-sky-200 bg-sky-50 text-sky-700';
     case 'orange':
       return 'border-orange-200 bg-orange-50 text-orange-700';
     case 'red':
@@ -52,7 +52,7 @@ export default async function PrintCustomerStatementPage({
 
   if (!customer) return notFound();
 
-  const currencySymbol = settings?.currencySymbol ?? 'PHP ';
+  const currencySymbol = settings?.currencySymbol ?? 'ج.م ';
   const displayName = getCustomerDisplayName(customer);
   const loyaltyBalance =
     customer.loyaltyLedger[0]?.balanceAfter ?? calculateCustomerLoyaltyBalance(customer.loyaltyLedger);
@@ -71,7 +71,7 @@ export default async function PrintCustomerStatementPage({
       <div className="mx-auto max-w-5xl rounded-[32px] border border-stone-200 bg-white p-8 shadow-[0_28px_60px_-40px_rgba(28,25,23,0.32)] print:max-w-none print:rounded-none print:border-0 print:p-0 print:shadow-none">
         <div className="flex flex-col gap-4 border-b border-stone-200 pb-6 print:hidden lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Customer statement</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">Customer statement</div>
             <h1 className="mt-2 text-3xl font-black text-stone-950">{displayName}</h1>
             <p className="mt-2 text-sm text-stone-500">
               Review recent sales, loyalty balance, and {openOnly ? 'open receivables only' : 'full receivable history'}.
@@ -85,7 +85,7 @@ export default async function PrintCustomerStatementPage({
         <div className="border-b border-stone-200 pb-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">{shop.name}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{shop.name}</div>
               <h2 className="mt-2 text-2xl font-black text-stone-950">Customer statement</h2>
               <div className="mt-2 space-y-1 text-sm text-stone-600">
                 {shop.address ? <div>{shop.address}</div> : null}
@@ -110,12 +110,12 @@ export default async function PrintCustomerStatementPage({
           </div>
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Open receivables</div>
-            <div className="mt-2 text-2xl font-black text-amber-700">{money(totalReceivableBalance, currencySymbol)}</div>
+            <div className="mt-2 text-2xl font-black text-sky-700">{money(totalReceivableBalance, currencySymbol)}</div>
             <div className="mt-1 text-xs text-stone-500">{receivables.filter((ledger) => Number(ledger.balance) > 0).length} balance(s)</div>
           </div>
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 p-4">
             <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Payments posted</div>
-            <div className="mt-2 text-2xl font-black text-emerald-700">{money(totalReceivablePayments, currencySymbol)}</div>
+            <div className="mt-2 text-2xl font-black text-blue-700">{money(totalReceivablePayments, currencySymbol)}</div>
             <div className="mt-1 text-xs text-stone-500">Receivable collections to date</div>
           </div>
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 p-4">
@@ -128,7 +128,7 @@ export default async function PrintCustomerStatementPage({
         <div className="grid gap-6 py-6 xl:grid-cols-[0.9fr_1.1fr]">
           <section className="space-y-4">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Customer profile</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Customer profile</div>
               <h3 className="mt-2 text-xl font-black text-stone-950">{displayName}</h3>
             </div>
             <div className="rounded-[24px] border border-stone-200 bg-stone-50 p-5 text-sm text-stone-700">
@@ -166,7 +166,7 @@ export default async function PrintCustomerStatementPage({
             </div>
 
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Recent sales</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Recent sales</div>
               <div className="mt-3 space-y-3">
                 {customer.sales.length ? customer.sales.slice(0, 10).map((sale) => (
                   <div key={sale.id} className="rounded-[22px] border border-stone-200 bg-white p-4 text-sm">
@@ -187,7 +187,7 @@ export default async function PrintCustomerStatementPage({
           </section>
 
           <section>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Receivable ledger</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">Receivable ledger</div>
             <div className="mt-3 space-y-4">
               {receivables.length ? receivables.map((ledger) => {
                 const status = normalizeCustomerCreditStatus(ledger.status, ledger.dueDate, Number(ledger.balance));

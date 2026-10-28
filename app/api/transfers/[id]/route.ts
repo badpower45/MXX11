@@ -17,7 +17,7 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { shopId, userId } = await requireRole('MANAGER');
+    const { shopId, userId, role } = await requireRole('MANAGER');
     const body = await request.json();
     const parsed = stockTransferActionSchema.safeParse(body);
 
@@ -35,12 +35,18 @@ export async function PATCH(
 
       switch (parsed.data.action) {
         case 'SEND':
+          if (role !== 'ADMIN') {
+            throw new StockTransferOperationError('Only administrators can approve and send transfers.', 403);
+          }
           if (detail.fromShopId !== shopId) {
             throw new StockTransferOperationError('Send this transfer from the source branch only.', 403);
           }
           await sendStockTransfer({ tx, stockTransfer: detail, userId });
           break;
         case 'RECEIVE':
+          if (role !== 'ADMIN') {
+            throw new StockTransferOperationError('Only administrators can confirm and receive transfers.', 403);
+          }
           if (detail.toShopId !== shopId) {
             throw new StockTransferOperationError('Receive this transfer from the destination branch only.', 403);
           }

@@ -51,7 +51,83 @@ export async function PATCH(
     });
 
     if (!existing) {
-      return NextResponse.json({ error: 'Staff assignment not found.' }, { status: 404 });
+      const guest = await prisma.guestStaff.findUnique({
+        where: { id },
+        include: {
+          shop: {
+            select: {
+              id: true,
+              name: true,
+              slug: true
+            }
+          }
+        }
+      });
+
+      if (!guest) {
+        return NextResponse.json({ error: 'Staff assignment not found.' }, { status: 404 });
+      }
+
+      const hasShopAccess = await assertManagedShopAccess(userId, guest.shopId);
+      if (!hasShopAccess) {
+        return NextResponse.json({ error: 'You do not have access to that staff record.' }, { status: 403 });
+      }
+
+      const updatedGuest = await prisma.$transaction(async (tx) => {
+        const nextGuest = await tx.guestStaff.update({
+          where: { id },
+          data: {
+            name: body.name !== undefined ? body.name.trim() : guest.name,
+            isActive: parsed.data.isActive !== undefined ? parsed.data.isActive : guest.isActive,
+            shopId: parsed.data.shopId !== undefined ? parsed.data.shopId : guest.shopId
+          },
+          include: {
+            shop: {
+              select: {
+                id: true,
+                name: true,
+                slug: true
+              }
+            }
+          }
+        });
+
+        await logActivity({
+          tx,
+          shopId: nextGuest.shopId,
+          userId,
+          action: 'STAFF_UPDATED',
+          entityType: 'GuestStaff',
+          entityId: nextGuest.id,
+          description: `Updated guest staff ${nextGuest.name}.`,
+          metadata: {
+            isActive: nextGuest.isActive,
+            shopId: nextGuest.shopId
+          }
+        });
+
+        return nextGuest;
+      });
+
+      const serializedGuest = {
+        id: updatedGuest.id,
+        userId: '',
+        name: updatedGuest.name,
+        email: 'بدون حساب',
+        role: 'STOCK_COUNTER' as const,
+        shopId: updatedGuest.shopId,
+        shopName: updatedGuest.shop.name,
+        shopSlug: updatedGuest.shop.slug,
+        isActive: updatedGuest.isActive,
+        assignedAt: updatedGuest.createdAt.toISOString(),
+        disabledAt: null,
+        lastLogin: null,
+        customPermissions: [],
+        baseSalary: null,
+        commissionRate: null
+      };
+
+      return NextResponse.json({ item: serializedGuest });
     }
 
     const [hasCurrentShopAccess, hasTargetShopAccess] = await Promise.all([
@@ -126,6 +202,8 @@ export async function PATCH(
           role: parsed.data.role,
           shopId: parsed.data.shopId,
           isActive: parsed.data.isActive,
+          baseSalary: parsed.data.baseSalary !== undefined ? parsed.data.baseSalary : existing.baseSalary,
+          commissionRate: parsed.data.commissionRate !== undefined ? parsed.data.commissionRate : existing.commissionRate,
           customPermissions:
             nextCustomPermissions === null ? Prisma.DbNull : nextCustomPermissions,
           assignedAt: parsed.data.shopId !== existing.shopId ? now : existing.assignedAt,
@@ -239,11 +317,32 @@ export async function PATCH(
         });
       }
 
+      const salaryChanged =
+        parsed.data.baseSalary !== undefined &&
+        parsed.data.baseSalary !== (existing.baseSalary ? Number(existing.baseSalary) : null);
+
+      if (salaryChanged) {
+        await logActivity({
+          tx,
+          shopId: membership.shopId,
+          userId,
+          action: 'STAFF_SALARY_CHANGED',
+          entityType: 'UserShop',
+          entityId: membership.id,
+          description: `Changed base salary for ${membership.user.name ?? membership.user.email} to ${membership.baseSalary ? membership.baseSalary.toString() : 'none'}.`,
+          metadata: {
+            previousSalary: existing.baseSalary ? existing.baseSalary.toString() : null,
+            nextSalary: membership.baseSalary ? membership.baseSalary.toString() : null
+          }
+        });
+      }
+
       if (
         parsed.data.shopId === existing.shopId &&
         parsed.data.role === existing.role &&
         parsed.data.isActive === existing.isActive &&
-        !permissionsChanged
+        !permissionsChanged &&
+        !salaryChanged
       ) {
         await logActivity({
           tx,

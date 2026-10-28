@@ -75,7 +75,7 @@ export default async function PrintRegisterZReadPage({
     <main className="min-h-screen bg-stone-50 p-6">
       <RegisterZReadReceipt
         autoprint={query.autoprint === '1'}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         session={serializeCashSession(cashSession)}
         summary={serializeRegisterSessionSummary(summary)}
         shop={{

@@ -36,6 +36,7 @@ import {
   validatePaymentsForSale
 } from '@/lib/payments';
 import { calculateTaxBreakdown, sanitizeDefaultPaymentMethods, type TaxModeValue } from '@/lib/shop-settings';
+import { useLocalizedPath, useTranslations, useLocale } from '@/lib/i18n/client';
 
 type Category = { id: string; name: string };
 type Product = {
@@ -51,6 +52,8 @@ type Product = {
   categoryId: string | null;
   imageUrl: string | null;
   category?: { id: string; name: string } | null;
+  // siblings = other variants of the same product (for picker popup)
+  siblings?: Product[];
 };
 type CartItem = Product & { qty: number };
 type Customer = {
@@ -72,6 +75,8 @@ type PaymentLine = {
   method: PaymentMethod;
   amount: string;
   referenceNumber: string;
+  pullAmount?: string;
+  adminFees?: string;
 };
 type ParkedSale = {
   id: string;
@@ -122,17 +127,17 @@ function toNumber(value: string) {
 }
 
 function createPaymentLine(method: PaymentMethod): PaymentLine {
-  return { id: crypto.randomUUID(), method, amount: '', referenceNumber: '' };
+  return { id: crypto.randomUUID(), method, amount: '', referenceNumber: '', pullAmount: '', adminFees: '' };
 }
 
 function buildInitialPaymentLines(defaultPaymentMethods: PaymentMethod[], canAcceptCash: boolean) {
   const preferredMethods = sanitizeDefaultPaymentMethods(defaultPaymentMethods).filter(
-    (method) => canAcceptCash || method !== 'Cash'
+    (method) => canAcceptCash || method !== 'كاش'
   );
 
   return preferredMethods.length
     ? preferredMethods.map(createPaymentLine)
-    : [createPaymentLine(canAcceptCash ? 'Cash' : 'Card')];
+    : [createPaymentLine(canAcceptCash ? 'كاش' : 'فيزا')];
 }
 
 function toDateInputValue(value = new Date()) {
@@ -170,11 +175,11 @@ function getQueuedSaleStatusTone(status: OfflineQueuedSale['status']) {
     case 'SYNCING':
       return 'border-sky-200 bg-sky-50 text-sky-700';
     case 'CONFLICT':
-      return 'border-amber-200 bg-amber-50 text-amber-700';
+      return 'border-sky-200 bg-sky-50 text-sky-700';
     case 'ERROR':
       return 'border-red-200 bg-red-50 text-red-700';
     default:
-      return 'border-emerald-200 bg-emerald-50 text-emerald-700';
+      return 'border-blue-200 bg-blue-50 text-blue-700';
   }
 }
 
@@ -196,6 +201,11 @@ function hasMeaningfulDraft(input: OfflineCheckoutDraft) {
     input.payments.some((payment) => payment.amount.trim().length > 0 || payment.referenceNumber.trim().length > 0)
   );
 }
+
+type RestoreNote =
+  | { type: 'skipped_unavailable' }
+  | { type: 'skipped_stock'; name: string }
+  | { type: 'reduced'; name: string; qty: number };
 
 function buildInitialCheckoutPersistenceState({
   draftStorageKey,
@@ -227,7 +237,8 @@ function buildInitialCheckoutPersistenceState({
     creditDueDate: toDateInputValue(),
     notes: '',
     payments: fallbackPayments,
-    message: ''
+    draftRestored: false,
+    restoreNotes: [] as RestoreNote[]
   };
 
   const draft = readLocalStorageValue<OfflineCheckoutDraft | null>(draftStorageKey, null);
@@ -236,12 +247,12 @@ function buildInitialCheckoutPersistenceState({
   }
 
   const restoredCart: CartItem[] = [];
-  const restoreNotes: string[] = [];
+  const restoreNotes: RestoreNote[] = [];
 
   for (const entry of draft.cart) {
     const product = productMap.get(entry.optionId);
     if (!product) {
-      restoreNotes.push('One saved cart line was skipped because the product is no longer available.');
+      restoreNotes.push({ type: 'skipped_unavailable' });
       continue;
     }
 
@@ -250,12 +261,12 @@ function buildInitialCheckoutPersistenceState({
     const nextQty = Math.min(entry.qty, availableQty);
 
     if (nextQty <= 0) {
-      restoreNotes.push(`${product.name} was skipped because current stock is no longer available.`);
+      restoreNotes.push({ type: 'skipped_stock', name: product.name });
       continue;
     }
 
     if (nextQty < entry.qty) {
-      restoreNotes.push(`${product.name} was reduced to ${nextQty} based on current stock.`);
+      restoreNotes.push({ type: 'reduced', name: product.name, qty: nextQty });
     }
 
     restoredCart.push({ ...product, qty: nextQty });
@@ -278,19 +289,37 @@ function buildInitialCheckoutPersistenceState({
         id: payment.id || crypto.randomUUID(),
         method: payment.method,
         amount: payment.amount,
-        referenceNumber: payment.referenceNumber
+        referenceNumber: payment.referenceNumber,
+        pullAmount: payment.pullAmount || '',
+        adminFees: payment.adminFees || ''
       }))
     : fallbackPayments;
 
   if (restoredCart.length) {
-    restored.message = 'Restored the last checkout draft from this terminal.';
+    restored.draftRestored = true;
   }
 
-  if (restoreNotes.length) {
-    restored.message = `${restored.message} ${restoreNotes.join(' ')}`.trim();
-  }
+  restored.restoreNotes = restoreNotes;
 
   return restored;
+}
+
+async function uploadProductImage(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await fetch('/api/uploads/products', {
+    method: 'POST',
+    body: formData
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok || typeof payload?.imageUrl !== 'string') {
+    throw new Error(payload?.error || 'Unable to upload image.');
+  }
+
+  return payload.imageUrl as string;
 }
 
 export default function CheckoutClient({
@@ -314,7 +343,9 @@ export default function CheckoutClient({
   receiptHeader,
   receiptFooter,
   receiptWidth,
-  initialParkedSales
+  initialParkedSales,
+  shopType,
+  staff
 }: {
   products: Product[];
   categories: Category[];
@@ -342,8 +373,15 @@ export default function CheckoutClient({
   receiptFooter: string | null;
   receiptWidth: '58mm' | '80mm';
   initialParkedSales: ParkedSale[];
+  shopType?: string;
+  staff: Array<{ id: string; name: string; role: string }>;
 }) {
+  const { locale } = useLocale();
+  const isAr = locale === 'ar';
   const router = useRouter();
+  const t = useTranslations('register');
+  const tCheckout = useTranslations('checkoutPage');
+  const lp = useLocalizedPath();
   const searchParams = useSearchParams();
   const scanInputRef = useRef<HTMLInputElement>(null);
   const cartRef = useRef<CartItem[]>([]);
@@ -384,6 +422,8 @@ export default function CheckoutClient({
   const [creditDueDate, setCreditDueDate] = useState(initialLocalState.creditDueDate);
   const [notes, setNotes] = useState(initialLocalState.notes);
   const [payments, setPayments] = useState<PaymentLine[]>(initialLocalState.payments);
+  const [installmentCashbackAmount, setInstallmentCashbackAmount] = useState('0');
+  const [salesmanId, setSalesmanId] = useState('');
   const [parkedSales, setParkedSales] = useState<ParkedSale[]>(initialParkedSales);
   const [queuedSales, setQueuedSales] = useState<OfflineQueuedSale[]>(initialLocalState.queuedSales);
   const [activeReceiptId, setActiveReceiptId] = useState<string | null>(null);
@@ -400,28 +440,37 @@ export default function CheckoutClient({
   const [clock, setClock] = useState(() => Date.now());
   const [error, setError] = useState('');
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback>(null);
-  const [parkedFeedback, setParkedFeedback] = useState(initialLocalState.message);
+  const [parkedFeedback, setParkedFeedback] = useState('');
+
+  const [variantPickerProductId, setVariantPickerProductId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialLocalState.draftRestored) {
+      let msg = tCheckout('restoredDraft');
+      if (initialLocalState.restoreNotes?.length) {
+        const notes = initialLocalState.restoreNotes
+          .map((note) => {
+            if (note.type === 'skipped_unavailable') {
+              return tCheckout('restoreNoteSkippedUnavailable');
+            } else if (note.type === 'skipped_stock') {
+              return tCheckout('restoreNoteSkippedStock', { name: note.name });
+            } else if (note.type === 'reduced') {
+              return tCheckout('restoreNoteReduced', { name: note.name, qty: note.qty });
+            }
+            return '';
+          })
+          .filter(Boolean)
+          .join(' ');
+        msg = `${msg} ${notes}`;
+      }
+      setParkedFeedback(msg);
+    }
+  }, [initialLocalState.draftRestored, initialLocalState.restoreNotes, tCheckout]);
   const [loading, setLoading] = useState(false);
   const [holding, setHolding] = useState<'SAVED_CART' | 'QUOTE' | null>(null);
   const [resumeLoadingId, setResumeLoadingId] = useState<string | null>(null);
   const [cancelLoadingId, setCancelLoadingId] = useState<string | null>(null);
   const hasSearchFilters = Boolean(query.trim() || selectedCategory);
-
-  const filtered = useMemo(() => {
-    const term = query.toLowerCase().trim();
-    return products
-      .filter((product) => {
-        const matchesCategory = !selectedCategory || product.categoryId === selectedCategory;
-        const matchesTerm =
-          !term ||
-          [product.name, product.variantLabel ?? '', product.barcode ?? '', product.sku ?? '', product.category?.name ?? '']
-            .join(' ')
-            .toLowerCase()
-            .includes(term);
-        return matchesCategory && matchesTerm;
-      })
-      .slice(0, 30);
-  }, [products, query, selectedCategory]);
 
   const selectedCustomer = useMemo(
     () => customers.find((customer) => customer.id === selectedCustomerId) ?? null,
@@ -430,7 +479,7 @@ export default function CheckoutClient({
   const filteredCustomers = useMemo(() => {
     const term = customerSearch.trim().toLowerCase();
     if (!term) {
-      return customers.slice(0, 6);
+      return customers.slice(0, 5);
     }
 
     return customers
@@ -446,10 +495,44 @@ export default function CheckoutClient({
           .toLowerCase()
           .includes(term)
       )
-      .slice(0, 6);
+      .slice(0, 20);
   }, [customerSearch, customers]);
 
   const productMap = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+
+  // Group products by productId so variants of the same product show as one card
+  const groupedProducts = useMemo(() => {
+    const groups = new Map<string, Product[]>();
+    for (const p of products) {
+      const key = p.productId;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(p);
+    }
+    // Return the first variant per group as the "representative" with siblings attached
+    const result: Product[] = [];
+    for (const [, group] of groups) {
+      const rep = { ...group[0], siblings: group.length > 1 ? group : undefined };
+      result.push(rep);
+    }
+    return result;
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    const term = query.toLowerCase().trim();
+    return groupedProducts
+      .filter((product) => {
+        const matchesCategory = !selectedCategory || product.categoryId === selectedCategory;
+        const matchesTerm =
+          !term ||
+          [product.name, product.variantLabel ?? '', product.barcode ?? '', product.sku ?? '', product.category?.name ?? '']
+            .join(' ')
+            .toLowerCase()
+            .includes(term);
+        return matchesCategory && matchesTerm;
+      })
+      .slice(0, 30);
+  }, [groupedProducts, query, selectedCategory]);
+
   const itemCount = cart.reduce((sum, item) => sum + item.qty, 0);
   const subtotal = cart.reduce((sum, item) => sum + Number(item.price) * item.qty, 0);
   const manualDiscount = Number(discountAmount || 0);
@@ -470,7 +553,9 @@ export default function CheckoutClient({
         normalizePaymentInput({
           method: payment.method,
           amount: toNumber(payment.amount),
-          referenceNumber: payment.referenceNumber.trim() || null
+          referenceNumber: payment.referenceNumber.trim() || null,
+          pullAmount: payment.pullAmount ? toNumber(payment.pullAmount) : null,
+          adminFees: payment.adminFees ? toNumber(payment.adminFees) : 0
         })
       ),
     [payments]
@@ -490,29 +575,68 @@ export default function CheckoutClient({
     [isCreditSale, paymentInputs, total]
   );
 
+  const totalInstallmentSurplus = useMemo(() => {
+    return payments.reduce((sum, p) => {
+      if (['امان', 'مايلو', 'موجو', 'فاليو', 'كونتاكت'].includes(p.method)) {
+        const pull = toNumber(p.pullAmount ?? '');
+        const amt = toNumber(p.amount ?? '');
+        if (pull > amt) {
+          return sum + (pull - amt);
+        }
+      }
+      return sum;
+    }, 0);
+  }, [payments]);
+
   const paymentError = useMemo(() => {
     if (isCreditSale) {
-      if (!selectedCustomerId) return 'Attach a customer before posting a credit sale.';
-      if (!creditDueDate) return 'Choose a due date for the credit sale.';
+      if (!selectedCustomerId) return tCheckout('errorAttachCustomerCredit');
+      if (!creditDueDate) return tCheckout('errorCreditDueDate');
       if (
         Number(loyaltyPointsToRedeem) > 0 &&
         selectedCustomer &&
         Number(loyaltyPointsToRedeem) > selectedCustomer.loyaltyBalance
       ) {
-        return 'Customer does not have enough loyalty points for this redemption.';
+        return tCheckout('errorNotEnoughPoints');
       }
       return '';
     }
 
     if (Number(loyaltyPointsToRedeem) > 0) {
-      if (!selectedCustomerId) return 'Attach a customer before redeeming loyalty points.';
+      if (!selectedCustomerId) return tCheckout('errorAttachCustomerLoyalty');
       if (selectedCustomer && Number(loyaltyPointsToRedeem) > selectedCustomer.loyaltyBalance) {
-        return 'Customer does not have enough loyalty points for this redemption.';
+        return tCheckout('errorNotEnoughPoints');
       }
     }
 
     const paymentValidation = validatePaymentsForSale(total, paymentInputs);
-    if (!paymentValidation.ok) return paymentValidation.error;
+    if (!paymentValidation.ok) {
+      const err = paymentValidation.error;
+      if (err === 'Add at least one payment line.') {
+        return tCheckout('errorAddPaymentLine');
+      }
+      if (err === 'Each payment amount must be greater than zero.') {
+        return tCheckout('errorPaymentAmountPositive');
+      }
+      if (err.endsWith('payments require a reference number.')) {
+        const method = err.split(' ')[0];
+        return tCheckout('errorPaymentRefRequired', { method });
+      }
+      if (err.startsWith('Duplicate') && err.endsWith('reference numbers are not allowed in one sale.')) {
+        const method = err.split(' ')[1];
+        return tCheckout('errorDuplicateRef', { method });
+      }
+      if (err === 'Total paid must cover the sale total before checkout can finish.') {
+        return tCheckout('errorTotalPaidMustCoverTotal');
+      }
+      if (err === 'Only cash can exceed the remaining amount when change is due.') {
+        return tCheckout('errorOnlyCashChange');
+      }
+      if (err === 'Non-cash payments must match the sale total exactly.') {
+        return tCheckout('errorNonCashMustMatchExact');
+      }
+      return err;
+    }
     return '';
   }, [
     creditDueDate,
@@ -523,7 +647,8 @@ export default function CheckoutClient({
     payments.length,
     selectedCustomer,
     selectedCustomerId,
-    total
+    total,
+    tCheckout
   ]);
 
   const stockSnapshotAgeMinutes = getStockSnapshotAgeMinutes(stockSnapshotCapturedAt, clock);
@@ -604,6 +729,8 @@ export default function CheckoutClient({
     setScanQuery('');
     setScanFeedback(null);
     setError('');
+    setInstallmentCashbackAmount('0');
+    setSalesmanId('');
     resetPayments();
   }
 
@@ -673,6 +800,14 @@ export default function CheckoutClient({
     setCart((current) => current.filter((item) => item.id !== optionId));
   }
 
+  function updatePrice(optionId: string, newPrice: number) {
+    setCart((current) =>
+      current.map((item) =>
+        item.id === optionId ? { ...item, price: newPrice as any } : item
+      )
+    );
+  }
+
   function requestClearCart() {
     if (!cart.length || loading || holding) return;
     if (!window.confirm('Clear all items from the current cart?')) return;
@@ -697,13 +832,13 @@ export default function CheckoutClient({
     setParkedFeedback('');
     setScanFeedback(null);
     if (!value) {
-      setScanFeedback({ tone: 'error', message: 'Scan or enter a barcode/SKU, then press Enter to add it.' });
+      setScanFeedback({ tone: 'error', message: tCheckout('scanErrorEmpty') });
       focusScanInput();
       return false;
     }
     const product = findProductByScan(value);
     if (!product) {
-      setScanFeedback({ tone: 'error', message: `No product matched barcode/SKU "${value}".` });
+      setScanFeedback({ tone: 'error', message: tCheckout('scanErrorNoMatch', { value }) });
       focusScanInput(true);
       return;
     }
@@ -713,7 +848,7 @@ export default function CheckoutClient({
       return;
     }
     setScanQuery('');
-    setScanFeedback({ tone: 'success', message: `${getOptionDisplayName(product)} added to cart.` });
+    setScanFeedback({ tone: 'success', message: tCheckout('scanSuccessAdded', { name: getOptionDisplayName(product) }) });
     focusScanInput();
   }
 
@@ -723,13 +858,17 @@ export default function CheckoutClient({
         if (payment.id !== lineId) return payment;
         const next = { ...payment, ...patch };
         if (patch.method && !requiresReferenceNumber(patch.method)) next.referenceNumber = '';
+        if (patch.method && !['امان', 'مايلو', 'موجو', 'فاليو', 'كونتاكت'].includes(patch.method)) {
+          next.pullAmount = '';
+          next.adminFees = '';
+        }
         return next;
       })
     );
   }
 
   function addPaymentLine() {
-    const nextMethod = canAcceptCash && payments.every((payment) => payment.method !== 'Cash') ? 'Cash' : 'Card';
+    const nextMethod = canAcceptCash && payments.every((payment) => payment.method !== 'كاش') ? 'كاش' : 'فيزا';
     setPayments((current) => [...current, createPaymentLine(nextMethod)]);
   }
 
@@ -761,12 +900,23 @@ export default function CheckoutClient({
       creditDueDate: isCreditSale ? creditDueDate : null,
       discountAmount: manualDiscount,
       notes: notes || null,
+      installmentCashbackAmount: toNumber(installmentCashbackAmount),
+      salesmanId: salesmanId || null,
+      customerNationalId: null,
+      customerNationalIdPhoto: null,
+      motorcycleColor: null,
+      motorcycleMotorNumber: null,
+      motorcycleChassisNumber: null,
+      motorcycleChassisPhoto: null,
+      motorcycleMotorPhoto: null,
       payments: isCreditSale
         ? []
         : paymentInputs.map((payment) => ({
             method: payment.method,
             amount: payment.amount,
-            referenceNumber: payment.referenceNumber ?? null
+            referenceNumber: payment.referenceNumber ?? null,
+            pullAmount: payment.pullAmount,
+            adminFees: payment.adminFees
           })),
       items: cart.map((item) => ({
         optionId: item.id,
@@ -944,6 +1094,7 @@ export default function CheckoutClient({
           continue;
         }
 
+        console.error('sync queued sale failure', data, response.status, queuedSale.id);
         setQueuedSales((current) =>
           current.map((entry) =>
             entry.id === queuedSale.id
@@ -956,7 +1107,8 @@ export default function CheckoutClient({
               : entry
           )
         );
-      } catch {
+      } catch (err) {
+        console.error('sync queued sale exception', err, queuedSale.id);
         setQueuedSales((current) =>
           current.map((entry) =>
             entry.id === queuedSale.id
@@ -1138,6 +1290,7 @@ export default function CheckoutClient({
       const data = await response.json().catch(() => ({ error: 'Unable to save the checkout draft.' }));
 
       if (!response.ok || !data?.parkedSale) {
+        console.error('parked-sales save error', data, response.status);
         setError(data?.error ?? 'Unable to save the checkout draft.');
         return;
       }
@@ -1172,6 +1325,7 @@ export default function CheckoutClient({
       const data = await response.json().catch(() => ({ error: 'Unable to load the saved checkout entry.' }));
       setResumeLoadingId(null);
       if (!response.ok) {
+        console.error('parked-sales resume error', data, response.status);
         setError(data?.error ?? 'Unable to load the saved checkout entry.');
         return false;
       }
@@ -1221,6 +1375,7 @@ export default function CheckoutClient({
       const data = await response.json().catch(() => ({ error: 'Unable to cancel the saved checkout entry.' }));
       setCancelLoadingId(null);
       if (!response.ok) {
+        console.error('parked-sales cancel error', data, response.status);
         setError(data?.error ?? 'Unable to cancel the saved checkout entry.');
         return;
       }
@@ -1318,7 +1473,7 @@ export default function CheckoutClient({
     if (!cart.length) return setError('Please add at least one item to the cart.');
     if (discount < 0) return setError('Discount amount cannot be negative.');
     if (discount > subtotal + taxAmount) return setError('Discount cannot exceed the sale total.');
-    if (paymentError) return setError(paymentError);
+
     if (offlineCheckoutBlocked) {
       setError(
         `Offline checkout is blocked because the branch stock snapshot is ${Math.ceil(stockSnapshotAgeMinutes)} minutes old. Refresh the branch while online before selling offline again.`
@@ -1356,6 +1511,7 @@ export default function CheckoutClient({
       const data = await response.json().catch(() => ({ error: 'Failed to create sale.' }));
       setLoading(false);
       if (!response.ok) {
+        console.error('create sale error', data, response.status);
         setError(data.error ?? 'Failed to create sale.');
         return;
       }
@@ -1410,39 +1566,39 @@ export default function CheckoutClient({
             <div className="flex flex-wrap items-center gap-2">
               <span
                 className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-                  isOnline ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'
+                  isOnline ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-sky-200 bg-sky-50 text-sky-700'
                 }`}
               >
-                {isOnline ? 'Online' : 'Offline'}
+                {isOnline ? tCheckout('online') : tCheckout('offline')}
               </span>
               <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">
-                {queuedSales.length} unsynced sale(s)
+                {tCheckout('unsyncedSales', { count: queuedSales.length })}
               </span>
               {conflictedQueuedSales.length ? (
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">
-                  {conflictedQueuedSales.length} conflict(s)
+                <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">
+                  {tCheckout('conflicts', { count: conflictedQueuedSales.length })}
                 </span>
               ) : null}
             </div>
-            <h2 className="mt-3 text-2xl font-black text-stone-950">Offline-ready checkout</h2>
+            <h2 className="mt-3 text-2xl font-black text-stone-950">{tCheckout('offlineReadyCheckout')}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-              Cart drafts persist locally, offline-completed sales queue for replay, and queued receipts stay printable until the branch reconnects.
+              {tCheckout('offlineReadyDesc')}
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Queued</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('queued')}</div>
               <div className="mt-1 text-2xl font-black text-stone-950">{queuedSales.length}</div>
             </div>
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Pending sync</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('pendingSync')}</div>
               <div className="mt-1 text-2xl font-black text-sky-700">{pendingQueuedSales.length + failedQueuedSales.length}</div>
             </div>
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Stock age</div>
-              <div className={`mt-1 text-2xl font-black ${isStockSnapshotStale ? 'text-amber-700' : 'text-emerald-700'}`}>
-                {Number.isFinite(stockSnapshotAgeMinutes) ? `${Math.ceil(stockSnapshotAgeMinutes)}m` : 'Unknown'}
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('stockAge')}</div>
+              <div className={`mt-1 text-2xl font-black ${isStockSnapshotStale ? 'text-sky-700' : 'text-blue-700'}`}>
+                {Number.isFinite(stockSnapshotAgeMinutes) ? `${Math.ceil(stockSnapshotAgeMinutes)}m` : tCheckout('unknown')}
               </div>
             </div>
           </div>
@@ -1453,16 +1609,16 @@ export default function CheckoutClient({
             offlineCheckoutBlocked
               ? 'border-red-200 bg-red-50 text-red-800'
               : !isOnline && isStockSnapshotStale
-                ? 'border-amber-200 bg-amber-50 text-amber-800'
+                ? 'border-sky-200 bg-sky-50 text-sky-800'
                 : 'border-stone-200 bg-stone-50 text-stone-700'
           }`}>
-            <div className="font-semibold text-stone-900">Offline stock safeguard</div>
+            <div className="font-semibold text-stone-900">{tCheckout('offlineStockSafeguard')}</div>
             <div className="mt-2 leading-6">
               {offlineCheckoutBlocked
-                ? `This branch is offline and the stock snapshot is older than ${offlineStockMaxAgeMinutes} minutes, so offline selling is locked until checkout is refreshed online.`
+                ? tCheckout('offlineBlockedDesc', { minutes: offlineStockMaxAgeMinutes })
                 : !isOnline && isStockSnapshotStale
-                  ? `This branch is offline and the stock snapshot is stale. Offline checkout is still allowed in warning mode, but queued sales may need conflict review when sync resumes.`
-                  : `The current stock snapshot was captured ${Math.ceil(stockSnapshotAgeMinutes)} minute(s) ago. Offline checkout will warn or lock based on the branch rule in settings.`}
+                  ? tCheckout('offlineStaleDesc')
+                  : tCheckout('offlineFreshDesc', { minutes: Math.ceil(stockSnapshotAgeMinutes) })}
             </div>
           </div>
 
@@ -1473,17 +1629,17 @@ export default function CheckoutClient({
               disabled={!queuedSales.length || syncingQueue || !isOnline}
               onClick={() => void syncQueuedSalesNow()}
             >
-              {syncingQueue ? 'Syncing queued sales...' : 'Retry sync now'}
+              {syncingQueue ? tCheckout('syncingQueuedSales') : tCheckout('retrySyncNow')}
             </Button>
             {activeReceiptSale ? (
               <Button type="button" variant="secondary" onClick={() => setActiveReceiptId(activeReceiptSale.id)}>
-                Open queued receipt
+                {tCheckout('openQueuedReceipt')}
               </Button>
             ) : null}
             {lastSyncedSale ? (
               <Link href={`/print/receipt/${lastSyncedSale.id}`} className="inline-flex">
                 <Button type="button" className="w-full justify-center">
-                  Open last synced receipt
+                  {tCheckout('openLastSyncedReceipt')}
                 </Button>
               </Link>
             ) : null}
@@ -1491,8 +1647,8 @@ export default function CheckoutClient({
         </div>
 
         {lastSyncedSale ? (
-          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-            Queued receipt {lastSyncedSale.localReceiptNumber} synced successfully as {lastSyncedSale.receiptNumber}.
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            {tCheckout('syncSuccess', { localReceipt: lastSyncedSale.localReceiptNumber, receiptNumber: lastSyncedSale.receiptNumber })}
           </div>
         ) : null}
 
@@ -1504,7 +1660,13 @@ export default function CheckoutClient({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${getQueuedSaleStatusTone(queuedSale.status)}`}>
-                        {getQueuedSaleStatusLabel(queuedSale.status)}
+                        {queuedSale.status === 'SYNCING'
+                          ? tCheckout('statusSyncing')
+                          : queuedSale.status === 'CONFLICT'
+                          ? tCheckout('statusConflict')
+                          : queuedSale.status === 'ERROR'
+                          ? tCheckout('statusError')
+                          : tCheckout('statusQueued')}
                       </span>
                       <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">
                         {queuedSale.localReceiptNumber}
@@ -1514,18 +1676,18 @@ export default function CheckoutClient({
                       {money(queuedSale.receipt.totalAmount, currencySymbol)}
                     </div>
                     <div className="mt-1 text-sm text-stone-500">
-                      Queued {dateTime(queuedSale.queuedAt)} / {queuedSale.receipt.items.length} line(s)
+                      {tCheckout('queued')} {dateTime(queuedSale.queuedAt)} / {tCheckout('unsyncedSales', { count: queuedSale.receipt.items.length })}
                     </div>
                     {queuedSale.lastError ? (
-                      <div className="mt-3 rounded-[18px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      <div className="mt-3 rounded-[18px] border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
                         {queuedSale.lastError}
                       </div>
                     ) : null}
                     {queuedSale.conflicts.length ? (
                       <div className="mt-3 space-y-2">
                         {queuedSale.conflicts.map((conflict, index) => (
-                          <div key={`${queuedSale.id}-${conflict.productId}-${index}`} className="rounded-[18px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                            <div className="font-semibold text-amber-900">{conflict.productName}</div>
+                          <div key={`${queuedSale.id}-${conflict.productId}-${index}`} className="rounded-[18px] border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-800">
+                            <div className="font-semibold text-sky-900">{conflict.productName}</div>
                             <div className="mt-1">{conflict.message}</div>
                           </div>
                         ))}
@@ -1535,7 +1697,7 @@ export default function CheckoutClient({
 
                   <div className="min-w-[240px] space-y-2">
                     <Button type="button" variant="secondary" className="w-full justify-center" onClick={() => setActiveReceiptId(queuedSale.id)}>
-                      Print local receipt
+                      {tCheckout('printLocalReceipt')}
                     </Button>
                     {queuedSale.status !== 'SYNCING' ? (
                       <Button
@@ -1544,7 +1706,7 @@ export default function CheckoutClient({
                         className="w-full justify-center"
                         onClick={() => restoreQueuedSaleToCheckout(queuedSale)}
                       >
-                        Review in checkout
+                        {tCheckout('reviewInCheckout')}
                       </Button>
                     ) : null}
                     <Button
@@ -1553,7 +1715,7 @@ export default function CheckoutClient({
                       className="w-full justify-center"
                       onClick={() => void syncQueuedSalesNow()}
                     >
-                      Retry sync
+                      {tCheckout('retrySync')}
                     </Button>
                     <Button
                       type="button"
@@ -1562,7 +1724,7 @@ export default function CheckoutClient({
                       disabled={queuedSale.status === 'SYNCING'}
                       onClick={() => removeQueuedSale(queuedSale)}
                     >
-                      Remove queued sale
+                      {tCheckout('removeQueuedSale')}
                     </Button>
                   </div>
                 </div>
@@ -1576,10 +1738,10 @@ export default function CheckoutClient({
         <Card>
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Offline receipt</div>
-              <h2 className="mt-2 text-2xl font-black text-stone-950">Temporary receipt preview</h2>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{tCheckout('offlineReceipt')}</div>
+              <h2 className="mt-2 text-2xl font-black text-stone-950">{tCheckout('tempReceiptPreview')}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-stone-500">
-                This receipt uses the local offline identifier {activeReceiptSale.localReceiptNumber}. It remains printable until the sale syncs to the server and gets a final receipt number.
+                {tCheckout('tempReceiptDesc', { localReceiptNumber: activeReceiptSale.localReceiptNumber })}
               </p>
             </div>
           </div>
@@ -1601,29 +1763,29 @@ export default function CheckoutClient({
         <Card className="space-y-5 overflow-hidden">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Scanner-first checkout</div>
-              <h2 className="mt-2 text-2xl font-black text-stone-900">Find products</h2>
-              <p className="mt-1 text-sm text-stone-500">Scan a barcode or type a SKU to add fast, then fall back to manual search or browsing when needed.</p>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{tCheckout('scannerFirstCheckout')}</div>
+              <h2 className="mt-2 text-2xl font-black text-stone-900">{tCheckout('findProducts')}</h2>
+              <p className="mt-1 text-sm text-stone-500">{tCheckout('scannerDesc')}</p>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:w-auto">
-              <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Visible</div><div className="mt-1 text-xl font-black text-stone-950">{filtered.length}</div></div>
-              <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Cart lines</div><div className="mt-1 text-xl font-black text-stone-950">{cart.length}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">{tCheckout('visible')}</div><div className="mt-1 text-xl font-black text-stone-950">{filtered.length}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">{tCheckout('cartLines')}</div><div className="mt-1 text-xl font-black text-stone-950">{cart.length}</div></div>
             </div>
           </div>
 
           <div className="rounded-[24px] border border-stone-200 bg-stone-50/80 p-4">
             <div className="grid gap-3 lg:grid-cols-[minmax(0,320px)_1fr]">
               <form onSubmit={handleScanSubmit} className="flex gap-3">
-                <Input ref={scanInputRef} placeholder="Scan barcode or enter SKU" value={scanQuery} onChange={(event) => setScanQuery(event.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
-                <Button type="submit" variant="secondary" className="shrink-0">Add</Button>
+                <Input ref={scanInputRef} placeholder={tCheckout('scanPlaceholder')} value={scanQuery} onChange={(event) => setScanQuery(event.target.value)} autoCapitalize="off" autoCorrect="off" spellCheck={false} />
+                <Button type="submit" variant="secondary" className="shrink-0">{tCheckout('add')}</Button>
               </form>
-              <Input placeholder="Search by product, variant, SKU, barcode..." value={query} onChange={(event) => setQuery(event.target.value)} />
+              <Input placeholder={tCheckout('searchPlaceholder')} value={query} onChange={(event) => setQuery(event.target.value)} />
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2 text-xs text-stone-500">
-              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">Enter adds scanned item</span>
-              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">`F2` focuses barcode input</span>
-              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">Existing cart lines increase quantity automatically</span>
+              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">{tCheckout('enterAddsScanned')}</span>
+              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">{tCheckout('f2Focuses')}</span>
+              <span className="rounded-full border border-stone-200 bg-white px-3 py-1">{tCheckout('existingCartQty')}</span>
             </div>
 
             {barcodeScannerNotes ? (
@@ -1632,74 +1794,133 @@ export default function CheckoutClient({
               </div>
             ) : null}
 
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={() => setSelectedCategory('')} className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${!selectedCategory ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'}`}>All</button>
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 sm:flex-wrap">
+              <button type="button" onClick={() => setSelectedCategory('')} className={`rounded-full border px-4 py-2 text-sm font-semibold transition shrink-0 ${!selectedCategory ? 'border-blue-600 bg-blue-600 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'}`}>{tCheckout('all')}</button>
               {categories.map((category) => (
-                <button key={category.id} type="button" onClick={() => setSelectedCategory(category.id)} className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${selectedCategory === category.id ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'}`}>{category.name}</button>
+                <button key={category.id} type="button" onClick={() => setSelectedCategory(category.id)} className={`rounded-full border px-4 py-2 text-sm font-semibold transition shrink-0 ${selectedCategory === category.id ? 'border-blue-600 bg-blue-600 text-white' : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'}`}>{category.name}</button>
               ))}
             </div>
 
-            {scanFeedback ? <div className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${scanFeedback.tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{scanFeedback.message}</div> : null}
+            {scanFeedback ? <div className={`mt-3 rounded-2xl border px-4 py-3 text-sm ${scanFeedback.tone === 'success' ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-red-200 bg-red-50 text-red-700'}`}>{scanFeedback.message}</div> : null}
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filtered.map((product) => (
-              <button key={product.id} type="button" onClick={() => { setScanFeedback(null); addToCart(product); }} className="rounded-[24px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,245,244,0.92))] p-4 text-left shadow-[0_18px_36px_-30px_rgba(28,25,23,0.35)] transition hover:-translate-y-1 hover:border-emerald-300">
-                <div className="flex items-start gap-3">
-                  <div className="h-16 w-16 overflow-hidden rounded-[18px] border border-stone-200 bg-stone-50">
-                    {product.imageUrl ? (
-                      <Image
-                        src={product.imageUrl}
-                        alt={getOptionDisplayName(product)}
-                        width={64}
-                        height={64}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : null}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-semibold text-stone-900">{product.name}</div>
-                    <div className="mt-1 text-sm text-stone-500">{product.variantLabel ?? product.category?.name ?? 'Standard item'}</div>
-                    <div className="mt-2 text-xs text-stone-500">SKU: {product.sku ?? 'N/A'} / Barcode: {product.barcode ?? 'N/A'}</div>
-                  </div>
-                  <div className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${product.stockQty <= 0 ? 'border-red-200 bg-red-50 text-red-700' : product.stockQty <= 5 ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>{product.stockQty <= 0 ? 'Out' : product.stockQty <= 5 ? 'Low' : 'Ready'}</div>
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-2 lg:grid-cols-3">
+            {filtered.map((product) => {
+              const hasSiblings = product.siblings && product.siblings.length > 1;
+              const totalStock = hasSiblings
+                ? product.siblings!.reduce((s, v) => s + v.stockQty, 0)
+                : product.stockQty;
+              return (
+              <button
+                key={product.id}
+                type="button"
+                onClick={() => {
+                  setScanFeedback(null);
+                  if (hasSiblings) {
+                    setVariantPickerProductId(product.productId);
+                  } else {
+                    addToCart(product);
+                  }
+                }}
+                className="group relative flex flex-col overflow-hidden rounded-3xl border border-stone-200/80 bg-white p-3 text-start shadow-[0_8px_30px_rgb(0,0,0,0.03)] transition-all duration-300 hover:-translate-y-1 hover:border-blue-600 hover:shadow-[0_20px_40px_rgba(2,107,201,0.12)]"
+              >
+                <div className="relative aspect-[4/3] w-full overflow-hidden rounded-2xl border border-stone-100 bg-stone-50">
+                  {product.imageUrl ? (
+                    <Image
+                      src={product.imageUrl}
+                      alt={getOptionDisplayName(product)}
+                      fill
+                      sizes="(max-width: 640px) 100vw, 50vw"
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-stone-100 text-stone-400">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-8 w-8">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+                      </svg>
+                    </div>
+                  )}
+                  <span
+                    className={`absolute top-2 start-2 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] backdrop-blur-[2px] shadow-sm ${
+                      totalStock <= 0
+                        ? 'border-red-200 bg-red-50/90 text-red-700'
+                        : totalStock <= 5
+                        ? 'border-sky-200 bg-sky-50/90 text-sky-700'
+                        : 'border-blue-200 bg-blue-50/90 text-blue-700'
+                    }`}
+                  >
+                    {totalStock <= 0 ? tCheckout('outOfStock') : totalStock <= 5 ? tCheckout('lowStock') : tCheckout('ready')}
+                  </span>
+                  {hasSiblings && (
+                    <span className="absolute top-2 end-2 rounded-full border border-sky-200 bg-sky-50/90 px-2.5 py-0.5 text-[10px] font-semibold backdrop-blur-[2px] shadow-sm text-sky-800">
+                      {product.siblings!.length} {isAr ? 'مواصفات / عبوات' : 'options'}
+                    </span>
+                  )}
                 </div>
-                <div className="mt-4 flex items-end justify-between gap-3">
-                  <div><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Selling price</div><div className="mt-1 text-2xl font-black text-emerald-700">{money(product.price, currencySymbol)}</div></div>
-                  <div className="text-right text-xs font-medium text-stone-500">{product.stockQty} in stock</div>
+
+                <div className="mt-3 flex flex-1 flex-col justify-between">
+                  <div>
+                    <div className="font-semibold text-stone-900 text-sm md:text-base leading-snug line-clamp-2 break-words" title={product.name}>
+                      {product.name}
+                    </div>
+                    <div className="mt-1 text-xs text-stone-500">
+                      {hasSiblings
+                        ? product.siblings!.map(v => v.variantLabel).filter(Boolean).slice(0, 3).join(' · ') + (product.siblings!.length > 3 ? '...' : '')
+                        : product.variantLabel ?? product.category?.name ?? tCheckout('standardItem')}
+                    </div>
+                    <div className="mt-2 text-[10px] text-stone-400">
+                      {tCheckout('skuShort')}: {product.sku ?? '—'} / {tCheckout('barcodeShort')}: {product.barcode ?? '—'}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-end justify-between border-t border-stone-100 pt-2.5">
+                    <div>
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-400">
+                        {tCheckout('sellingPrice')}
+                      </div>
+                      <div className="mt-0.5 text-xl font-black text-blue-900">
+                        {money(product.price, currencySymbol)}
+                      </div>
+                    </div>
+                    <div className="text-end text-xs font-semibold text-stone-500">
+                      {hasSiblings ? `${totalStock} إجمالي` : tCheckout('inStock', { count: product.stockQty })}
+                    </div>
+                  </div>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
+
 
           {!filtered.length ? (
             products.length ? (
               <div className="rounded-[24px] border border-dashed border-stone-300 bg-stone-50 p-6">
-                <div className="text-sm font-semibold text-stone-900">{hasSearchFilters ? 'No products matched that search.' : 'No products are visible right now.'}</div>
+                <div className="text-sm font-semibold text-stone-900">{hasSearchFilters ? tCheckout('noProductsMatched') : tCheckout('noProductsVisible')}</div>
                 <div className="mt-2 text-sm text-stone-500">
                   {hasSearchFilters
-                    ? 'Try a barcode, SKU, or a broader category filter to keep checkout moving.'
-                    : 'The active branch catalog is empty or fully filtered out.'}
+                    ? tCheckout('noProductsMatchedDesc')
+                    : tCheckout('activeCatalogEmpty')}
                 </div>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Button type="button" variant="secondary" onClick={() => { setQuery(''); setSelectedCategory(''); focusScanInput(); }}>
-                    Reset search
+                    {tCheckout('resetSearch')}
                   </Button>
-                  <Link href="/products" className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-700/90 bg-[linear-gradient(180deg,#059669,#047857)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(5,150,105,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(5,150,105,0.85)]">
-                    Add products
+                  <Link href={lp('/products')} className="inline-flex h-11 items-center justify-center rounded-2xl border border-blue-700/90 bg-[linear-gradient(180deg,#2563eb,#1d4ed8)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(37,99,235,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(37,99,235,0.85)]">
+                    {tCheckout('addProducts')}
                   </Link>
                 </div>
               </div>
             ) : (
               <div className="rounded-[24px] border border-dashed border-stone-300 bg-stone-50 p-6">
-                <div className="text-sm font-semibold text-stone-900">This branch does not have sellable products yet.</div>
-                <div className="mt-2 text-sm text-stone-500">Add products with barcode or SKU data first, then the scanner-first checkout flow will be ready for cashiers.</div>
+                <div className="text-sm font-semibold text-stone-900">{tCheckout('noSellableProducts')}</div>
+                <div className="mt-2 text-sm text-stone-500">{tCheckout('noSellableProductsDesc')}</div>
                 <div className="mt-4 flex flex-wrap gap-2">
-                  <Link href="/products" className="inline-flex h-11 items-center justify-center rounded-2xl border border-emerald-700/90 bg-[linear-gradient(180deg,#059669,#047857)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(5,150,105,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(5,150,105,0.85)]">
-                    Create first product
+                  <Link href={lp('/products')} className="inline-flex h-11 items-center justify-center rounded-2xl border border-blue-700/90 bg-[linear-gradient(180deg,#2563eb,#1d4ed8)] px-4 text-sm font-semibold text-white shadow-[0_18px_30px_-20px_rgba(37,99,235,0.9)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(37,99,235,0.85)]">
+                    {tCheckout('createFirstProduct')}
                   </Link>
-                  <Link href="/settings" className="inline-flex h-11 items-center justify-center rounded-2xl border border-stone-200 bg-white/90 px-4 text-sm font-semibold text-stone-800 shadow-[0_12px_24px_-18px_rgba(28,25,23,0.32)] transition duration-200 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white">
-                    Review branch settings
+                  <Link href={lp('/settings')} className="inline-flex h-11 items-center justify-center rounded-2xl border border-stone-200 bg-white/90 px-4 text-sm font-semibold text-stone-800 shadow-[0_12px_24px_-18px_rgba(28,25,23,0.32)] transition duration-200 hover:-translate-y-0.5 hover:border-stone-300 hover:bg-white">
+                    {tCheckout('reviewBranchSettings')}
                   </Link>
                 </div>
               </div>
@@ -1709,51 +1930,81 @@ export default function CheckoutClient({
         <Card className="space-y-5 xl:sticky xl:top-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Sale desk</div>
-              <h2 className="mt-2 text-2xl font-black text-stone-900">Checkout summary</h2>
-              <p className="mt-1 text-sm text-stone-500">Cashier: <span className="font-semibold text-stone-700">{cashierName}</span></p>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">{tCheckout('saleDesk')}</div>
+              <h2 className="mt-2 text-2xl font-black text-stone-900">{tCheckout('checkoutSummary')}</h2>
+              <p className="mt-1 text-sm text-stone-500">{tCheckout('cashier', { name: cashierName })}</p>
             </div>
-            <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3 text-right"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">Items</div><div className="text-2xl font-black text-stone-950">{itemCount}</div></div>
+            <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3 text-end"><div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-500">{tCheckout('items')}</div><div className="text-2xl font-black text-stone-950">{itemCount}</div></div>
           </div>
 
           <div className="space-y-3">
             {cart.length ? cart.map((item) => (
-              <div key={item.id} className="rounded-[24px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,245,244,0.9))] p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-semibold text-stone-900">{item.name}</div>
-                    <div className="text-sm text-stone-500">{item.variantLabel ?? 'Base item'}</div>
-                    <div className="mt-1 text-xs text-stone-500">{money(item.price, currencySymbol)} each</div>
+              <div key={item.id} className="rounded-[24px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(245,245,244,0.9))] p-3.5 sm:p-4">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-stone-900 text-sm md:text-base leading-snug line-clamp-2 break-words text-start" title={item.name}>{item.name}</div>
+                    <div className="text-sm text-stone-500 text-start">{item.variantLabel ?? tCheckout('standardItem')}</div>
+                    <div className="mt-2 flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-stone-500 font-semibold">{isAr ? 'سعر البيع:' : 'Price:'}</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={item.price}
+                          onChange={(e) => updatePrice(item.id, Number(e.target.value))}
+                          className="h-8 w-24 rounded-lg border border-stone-200 px-2 text-xs font-semibold text-stone-900 focus:border-blue-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button type="button" variant="secondary" className="h-10 w-10 px-0" onClick={() => updateQty(item.id, 'decrease')}>-</Button>
-                    <span className="inline-flex h-10 min-w-10 items-center justify-center rounded-2xl bg-white px-3 font-semibold text-stone-900">{item.qty}</span>
-                    <Button type="button" variant="secondary" className="h-10 w-10 px-0" onClick={() => updateQty(item.id, 'increase')}>+</Button>
-                    <Button type="button" variant="ghost" className="h-10 px-3 text-xs uppercase tracking-[0.14em]" onClick={() => removeFromCart(item.id)}>Remove</Button>
+                  <div className="flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto border-t border-stone-200/50 pt-3 sm:border-t-0 sm:pt-0">
+                    <div className="flex items-center gap-1.5">
+                      <Button type="button" variant="secondary" className="h-9 w-9 shrink-0 px-0 text-base" onClick={() => updateQty(item.id, 'decrease')}>-</Button>
+                      <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-xl bg-white px-2 text-sm font-semibold text-stone-900 border border-stone-200/80">{item.qty}</span>
+                      <Button type="button" variant="secondary" className="h-9 w-9 shrink-0 px-0 text-base" onClick={() => updateQty(item.id, 'increase')}>+</Button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeFromCart(item.id)}
+                      className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 text-xs font-bold text-rose-700 hover:border-rose-300 hover:bg-rose-100 hover:text-rose-800 transition shadow-2xs"
+                      title={tCheckout('remove')}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5">
+                        <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
+                      </svg>
+                      <span>{tCheckout('remove')}</span>
+                    </button>
                   </div>
                 </div>
-                <div className="mt-4 flex items-center justify-between rounded-[20px] border border-stone-200/80 bg-white/80 px-3 py-2.5 text-sm"><span className="text-stone-500">Line total</span><span className="font-semibold text-stone-900">{money(Number(item.price) * item.qty, currencySymbol)}</span></div>
+                <div className="mt-3.5 flex items-center justify-between rounded-[20px] border border-stone-200/80 bg-white/80 px-3 py-2.5 text-sm"><span className="text-stone-500">{tCheckout('lineTotal')}</span><span className="font-semibold text-stone-900">{money(Number(item.price) * item.qty, currencySymbol)}</span></div>
               </div>
             )) : (
               <div className="rounded-[24px] border border-dashed border-stone-300 bg-stone-50 p-6">
-                <div className="text-sm font-semibold text-stone-900">No items in the cart yet.</div>
-                <div className="mt-2 text-sm text-stone-500">Scan a barcode and press Enter, browse the product tiles, or use `F2` to jump back to the scanner input.</div>
+                <div className="text-sm font-semibold text-stone-900">{tCheckout('noItemsInCart')}</div>
+                <div className="mt-2 text-sm text-stone-500">{tCheckout('noItemsInCartDesc')}</div>
               </div>
             )}
           </div>
 
           <div className="rounded-[26px] border border-stone-200 bg-stone-50/85 p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">Customer and payment</div>
-            <p className="mt-1 text-sm text-stone-500">Attach a customer when you need history, loyalty, or receivables.</p>
-            {!canAcceptCash && !isCreditSale ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Open a register session first to accept cash payments. Non-cash payments can still be processed safely.</div> : null}
+            <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">{tCheckout('customerAndPayment')}</div>
+            <p className="mt-1 text-sm text-stone-500">{tCheckout('attachCustomerDesc')}</p>
+            {!canAcceptCash && !isCreditSale ? (
+              <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span>{t('warning.cashSessionRequired')}</span>
+                <Link href={lp('/register/open?redirect=/checkout')} className="text-blue-700 hover:text-blue-800 underline font-semibold shrink-0">
+                  {t('warning.openSessionLink')}
+                </Link>
+              </div>
+            ) : null}
 
             <div className="mt-4 rounded-2xl border border-stone-200 bg-white p-4">
-              <div className="text-sm font-semibold text-stone-900">Customer search</div>
+              <div className="text-sm font-semibold text-stone-900">{tCheckout('customerSearch')}</div>
               <div className="mt-3 grid gap-3">
-                <Input placeholder="Search customer by name, phone, email, or business" value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} />
+                <Input placeholder={tCheckout('customerSearchPlaceholder')} value={customerSearch} onChange={(event) => setCustomerSearch(event.target.value)} />
                 <div className="flex flex-wrap gap-2">
                   {filteredCustomers.map((customer) => (
-                    <button key={customer.id} type="button" onClick={() => selectCustomer(customer)} className={`rounded-full border px-3 py-2 text-sm transition ${selectedCustomerId === customer.id ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-stone-200 bg-stone-50 text-stone-700 hover:border-stone-300 hover:bg-white'}`}>
+                    <button key={customer.id} type="button" onClick={() => selectCustomer(customer)} className={`rounded-full border px-3 py-2 text-sm transition ${selectedCustomerId === customer.id ? 'border-blue-600 bg-blue-600 text-white' : 'border-stone-200 bg-stone-50 text-stone-700 hover:border-stone-300 hover:bg-white'}`}>
                       {getCustomerDisplayName(customer)}
                     </button>
                   ))}
@@ -1761,15 +2012,17 @@ export default function CheckoutClient({
               </div>
 
               {selectedCustomer ? (
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 text-sm">
+                <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50/70 p-4 text-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="font-semibold text-stone-900">{getCustomerDisplayName(selectedCustomer)}</div>
-                      <div className="text-stone-600">{selectedCustomer.phone || 'No phone'}{selectedCustomer.email ? ` / ${selectedCustomer.email}` : ''}</div>
-                      <div className="mt-1 text-xs text-stone-500">Points {selectedCustomer.loyaltyBalance} / Receivables {money(selectedCustomer.receivableBalance, currencySymbol)}</div>
+                      <div className="text-stone-600">{selectedCustomer.phone || tCheckout('noPhone')}{selectedCustomer.email ? ` / ${selectedCustomer.email}` : ''}</div>
+                      <div className="mt-1 text-xs text-stone-500">
+                        {tCheckout('customerDetails', { points: selectedCustomer.loyaltyBalance, receivables: money(selectedCustomer.receivableBalance, currencySymbol) })}
+                      </div>
                     </div>
                     <Button type="button" variant="ghost" onClick={() => { setSelectedCustomerId(null); setCustomerSearch(''); setCustomerName(''); setCustomerPhone(''); setLoyaltyPointsToRedeem('0'); setIsCreditSale(false); }}>
-                      Clear
+                      {tCheckout('clear')}
                     </Button>
                   </div>
                 </div>
@@ -1777,20 +2030,33 @@ export default function CheckoutClient({
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <Input placeholder="Customer name" value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
-              <Input placeholder="Customer phone" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
-              <Input type="number" step="0.01" placeholder="Discount amount" value={discountAmount} onChange={(event) => setDiscountAmount(event.target.value)} />
-              <Input placeholder="Notes for this sale" value={notes} onChange={(event) => setNotes(event.target.value)} />
+              <Input placeholder={tCheckout('customerName')} value={customerName} onChange={(event) => setCustomerName(event.target.value)} />
+              <Input placeholder={tCheckout('customerPhone')} value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} />
+              <Input type="number" step="0.01" placeholder={tCheckout('discountAmount')} value={discountAmount} onChange={(event) => setDiscountAmount(event.target.value)} />
+              <Input placeholder={tCheckout('notesForSale')} value={notes} onChange={(event) => setNotes(event.target.value)} />
+              <div className="md:col-span-2">
+                <label className="block text-xs font-semibold text-stone-500 mb-1.5">
+                  {isAr ? 'البائع المسؤول' : 'Salesman / Staff'}
+                </label>
+                <select
+                  className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500"
+                  value={salesmanId}
+                  onChange={(event) => setSalesmanId(event.target.value)}
+                >
+                  <option value="">{isAr ? '-- اختر البائع --' : '-- Select Salesman --'}</option>
+                  {staff.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name} ({member.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <Input type="number" min={0} placeholder="Redeem loyalty points" value={loyaltyPointsToRedeem} onChange={(event) => setLoyaltyPointsToRedeem(event.target.value)} />
-              <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-                <input type="checkbox" checked={isCreditSale} onChange={(event) => setIsCreditSale(event.target.checked)} />
-                Post as customer credit sale
-              </label>
-              <Input type="date" value={creditDueDate} onChange={(event) => setCreditDueDate(event.target.value)} disabled={!isCreditSale} />
+            <div className="mt-4 grid gap-3 md:grid-cols-1">
+              <Input type="number" min={0} placeholder={tCheckout('redeemLoyalty')} value={loyaltyPointsToRedeem} onChange={(event) => setLoyaltyPointsToRedeem(event.target.value)} />
             </div>
+
 
             {!isCreditSale ? <div className="mt-4 space-y-3">
               {payments.map((payment) => {
@@ -1799,61 +2065,149 @@ export default function CheckoutClient({
                 return (
                   <div key={payment.id} className="rounded-[24px] border border-stone-200 bg-white p-4">
                     <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_auto]">
-                      <select className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-emerald-500" value={payment.method} onChange={(event) => updatePaymentLine(payment.id, { method: event.target.value as PaymentMethod })}>
-                        {PAYMENT_METHODS.map((method) => <option key={method} value={method} disabled={method === 'Cash' && !canAcceptCash}>{method === 'Cash' && !canAcceptCash ? 'Cash (open register required)' : method}</option>)}
+                      <select className="h-11 w-full rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500" value={payment.method} onChange={(event) => updatePaymentLine(payment.id, { method: event.target.value as PaymentMethod })}>
+                        {PAYMENT_METHODS.filter((method) => {
+                          if (shopType === 'SPARE_PARTS_ONLY') {
+                            return !['مايلو', 'فاليو', 'امان', 'موجو', 'كونتاكت'].includes(method);
+                          }
+                          return true;
+                        }).map((method) => (
+                          <option key={method} value={method} disabled={method === 'كاش' && !canAcceptCash}>
+                            {method === 'كاش' && !canAcceptCash ? `${method} (${t('open.title')})` : method}
+                          </option>
+                        ))}
                       </select>
-                      <Input type="number" step="0.01" placeholder={payment.method === 'Cash' ? 'Cash received' : 'Amount'} value={payment.amount} onChange={(event) => updatePaymentLine(payment.id, { amount: event.target.value })} />
-                      <Button type="button" variant="ghost" onClick={() => removePaymentLine(payment.id)} disabled={payments.length === 1}>Remove</Button>
+                      <Input type="number" step="0.01" placeholder={payment.method === 'كاش' ? 'المبلغ المستلم' : 'المبلغ'} value={payment.amount} onChange={(event) => updatePaymentLine(payment.id, { amount: event.target.value })} />
+                      <button
+                        type="button"
+                        onClick={() => removePaymentLine(payment.id)}
+                        disabled={payments.length === 1}
+                        className="inline-flex h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100 hover:border-rose-300 hover:text-rose-800 disabled:opacity-40 disabled:cursor-not-allowed transition shadow-2xs"
+                        title={tCheckout('remove')}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                          <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                        <span className="hidden sm:inline">{tCheckout('remove')}</span>
+                      </button>
                     </div>
-                    {requiresReferenceNumber(payment.method) ? <div className="mt-3"><Input placeholder={payment.method === 'Card' ? 'Card reference number' : payment.method === 'E-Wallet' ? 'E-wallet reference number' : 'Bank transfer reference number'} value={payment.referenceNumber} onChange={(event) => updatePaymentLine(payment.id, { referenceNumber: event.target.value })} /></div> : null}
-                    {payment.method === 'Cash' ? <div className="mt-3 flex flex-wrap gap-2"><Button type="button" variant="secondary" className="h-9 px-3 text-xs" onClick={() => setPaymentLineAmount(payment.id, exactAmount)}>Exact amount</Button>{quickAmounts.map((amount) => <Button key={`${payment.id}-${amount}`} type="button" variant="secondary" className="h-9 px-3 text-xs" onClick={() => setPaymentLineAmount(payment.id, amount)}>{money(amount, currencySymbol)}</Button>)}</div> : null}
+                    {requiresReferenceNumber(payment.method) ? (
+                      <div className="mt-3">
+                        <Input placeholder="رقم المرجع" value={payment.referenceNumber} onChange={(event) => updatePaymentLine(payment.id, { referenceNumber: event.target.value })} />
+                      </div>
+                    ) : null}
+                    {['امان', 'مايلو', 'موجو', 'فاليو', 'كونتاكت'].includes(payment.method) ? (
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="block text-xs font-semibold text-stone-500 mb-1">مبلغ السحب (الشركة)</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="مبلغ السحب من شركة التقسيط"
+                            value={payment.pullAmount ?? ''}
+                            onChange={(event) => updatePaymentLine(payment.id, { pullAmount: event.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-stone-500 mb-1">المصاريف الإدارية</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            placeholder="المصاريف الإدارية للشركة"
+                            value={payment.adminFees ?? ''}
+                            onChange={(event) => updatePaymentLine(payment.id, { adminFees: event.target.value })}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+                    {payment.method === 'كاش' ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" variant="secondary" className="h-9 px-3 text-xs" onClick={() => setPaymentLineAmount(payment.id, exactAmount)}>المبلغ كامل</Button>
+                        {quickAmounts.map((amount) => (
+                          <Button key={`${payment.id}-${amount}`} type="button" variant="secondary" className="h-9 px-3 text-xs" onClick={() => setPaymentLineAmount(payment.id, amount)}>{money(amount, currencySymbol)}</Button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
-              <Button type="button" variant="secondary" onClick={addPaymentLine}>Add payment line</Button>
+              <Button type="button" variant="secondary" onClick={addPaymentLine}>{tCheckout('addPaymentLine')}</Button>
+              {totalInstallmentSurplus > 0 ? (
+                <div className="mt-4 p-4 rounded-[24px] border border-blue-200 bg-blue-50/70 space-y-3">
+                  <div className="flex items-center justify-between text-sm font-semibold text-blue-900">
+                    <span>فائض السحب التقسيط المتوفر:</span>
+                    <span>{money(totalInstallmentSurplus, currencySymbol)}</span>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 items-center">
+                    <div className="text-xs text-stone-600">
+                      يمكنك اختيار رد جزء أو كامل الفائض كاش للعميل (سيسجل كحركة صادر من الخزينة)
+                    </div>
+                    <div>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="المبلغ المسترد كاش (Cashback)"
+                        value={installmentCashbackAmount}
+                        onChange={(event) => setInstallmentCashbackAmount(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </div> : (
               <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                This sale will be posted to customer receivables and collected later from the customer ledger.
+                {tCheckout('creditSaleNotice')}
               </div>
             )}
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Paid total</div><div className="mt-1 text-2xl font-black text-stone-950">{money(paymentSummary.totalPaid, currencySymbol)}</div></div>
-              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Remaining</div><div className={`mt-1 text-2xl font-black ${paymentSummary.remainingAmount > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{money(paymentSummary.remainingAmount, currencySymbol)}</div></div>
-              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Cash received</div><div className="mt-1 text-2xl font-black text-stone-950">{money(paymentSummary.cashReceived, currencySymbol)}</div></div>
-              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Change due</div><div className={`mt-1 text-2xl font-black ${paymentSummary.changeDue > 0 ? 'text-emerald-700' : 'text-stone-950'}`}>{money(paymentSummary.changeDue, currencySymbol)}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('paidTotal')}</div><div className="mt-1 text-2xl font-black text-stone-950">{money(paymentSummary.totalPaid, currencySymbol)}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('remaining')}</div><div className={`mt-1 text-2xl font-black ${paymentSummary.remainingAmount > 0 ? 'text-red-700' : 'text-blue-700'}`}>{money(paymentSummary.remainingAmount, currencySymbol)}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('cashReceived')}</div><div className="mt-1 text-2xl font-black text-stone-950">{money(paymentSummary.cashReceived, currencySymbol)}</div></div>
+              <div className="rounded-[22px] border border-stone-200 bg-white px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('changeDue')}</div><div className={`mt-1 text-2xl font-black ${paymentSummary.changeDue > 0 ? 'text-blue-700' : 'text-stone-950'}`}>{money(paymentSummary.changeDue, currencySymbol)}</div></div>
             </div>
           </div>
 
-          <div className="rounded-[26px] border border-stone-200 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(245,245,244,0.96))] p-5 text-sm">
-            <div className="flex justify-between"><span>Subtotal</span><span>{money(subtotal, currencySymbol)}</span></div>
-            <div className="mt-2 flex justify-between"><span>Tax ({taxRate}%)</span><span>{money(taxAmount, currencySymbol)}</span></div>
-            <div className="mt-2 flex justify-between"><span>Manual discount</span><span>-{money(manualDiscount, currencySymbol)}</span></div>
-            <div className="mt-2 flex justify-between"><span>Loyalty discount</span><span>-{money(loyaltyDiscount, currencySymbol)}</span></div>
-            <div className="mt-2 flex justify-between"><span>{isCreditSale ? 'Receivable' : 'Paid'}</span><span>{money(isCreditSale ? total : paymentSummary.totalPaid, currencySymbol)}</span></div>
-            <div className="mt-2 flex justify-between"><span>Change</span><span>{money(paymentSummary.changeDue, currencySymbol)}</span></div>
-            <div className="mt-3 flex justify-between border-t border-stone-200 pt-3 text-lg font-black text-stone-900"><span>Total</span><span>{money(total, currencySymbol)}</span></div>
-            <div className="mt-4 rounded-[22px] border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600">{cart.length ? paymentError || `${itemCount} item(s) across ${cart.length} line(s) are ready for validation and receipt printing.` : 'Add at least one product before finalizing the sale.'}</div>
+          <div className="rounded-[26px] border border-stone-200 bg-stone-50/85 p-5 text-sm">
+            <div className="flex justify-between"><span>{tCheckout('subtotal')}</span><span>{money(subtotal, currencySymbol)}</span></div>
+            <div className="mt-2 flex justify-between"><span>{tCheckout('tax', { rate: taxRate })}</span><span>{money(taxAmount, currencySymbol)}</span></div>
+            <div className="mt-2 flex justify-between"><span>{tCheckout('manualDiscount')}</span><span>-{money(manualDiscount, currencySymbol)}</span></div>
+            <div className="mt-2 flex justify-between"><span>{tCheckout('loyaltyDiscount')}</span><span>-{money(loyaltyDiscount, currencySymbol)}</span></div>
+            <div className="mt-2 flex justify-between"><span>{isCreditSale ? tCheckout('receivable') : tCheckout('paid')}</span><span>{money(isCreditSale ? total : paymentSummary.totalPaid, currencySymbol)}</span></div>
+            <div className="mt-2 flex justify-between"><span>{tCheckout('change')}</span><span>{money(paymentSummary.changeDue, currencySymbol)}</span></div>
+            <div className="mt-3 flex justify-between border-t border-stone-200 pt-3 text-lg font-black text-stone-900"><span>{tCheckout('total')}</span><span>{money(total, currencySymbol)}</span></div>
+            <div className="mt-4 rounded-[22px] border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600">{cart.length ? paymentError || tCheckout('readyForValidation', { count: itemCount, lines: cart.length }) : tCheckout('addAtLeastOneProduct')}</div>
           </div>
 
-          {parkedFeedback ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{parkedFeedback}</div> : null}
+          {parkedFeedback ? <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{parkedFeedback}</div> : null}
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Button type="button" className="flex-1" disabled={!canCompleteSale} onClick={() => void completeSale()}>{loading ? 'Completing sale...' : !isOnline ? 'Queue offline sale' : 'Complete sale'}</Button>
-            <Button type="button" variant="secondary" className="sm:min-w-32" disabled={!cart.length || loading || Boolean(holding)} onClick={() => void saveCheckoutDraft('SAVED_CART')}>{holding === 'SAVED_CART' ? 'Saving cart...' : 'Save cart'}</Button>
-            <Button type="button" variant="secondary" className="sm:min-w-32" disabled={!cart.length || loading || Boolean(holding)} onClick={() => void saveCheckoutDraft('QUOTE')}>{holding === 'QUOTE' ? 'Saving quote...' : 'Save quote'}</Button>
-            <Button type="button" variant="secondary" className="sm:min-w-32" disabled={!cart.length || loading || Boolean(holding)} onClick={requestClearCart}>Clear</Button>
+            <Button type="button" className="flex-1" disabled={!canCompleteSale} onClick={() => void completeSale()}>{loading ? tCheckout('completingSale') : !isOnline ? tCheckout('queueOfflineSale') : tCheckout('completeSale')}</Button>
+            <Button type="button" variant="secondary" className="sm:min-w-32" disabled={!cart.length || loading || Boolean(holding)} onClick={() => void saveCheckoutDraft('SAVED_CART')}>{holding === 'SAVED_CART' ? tCheckout('savingCart') : tCheckout('saveCart')}</Button>
+            <Button type="button" variant="secondary" className="sm:min-w-32" disabled={!cart.length || loading || Boolean(holding)} onClick={() => void saveCheckoutDraft('QUOTE')}>{holding === 'QUOTE' ? tCheckout('savingQuote') : tCheckout('saveQuote')}</Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="sm:min-w-32 border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:border-rose-300 hover:text-rose-800 shadow-2xs gap-1.5"
+              disabled={!cart.length || loading || Boolean(holding)}
+              onClick={requestClearCart}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
+                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
+              </svg>
+              <span>{tCheckout('clear')}</span>
+            </Button>
           </div>
 
           <div className="rounded-[26px] border border-stone-200 bg-stone-50/85 p-4">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">Saved checkouts</div>
-                <h3 className="mt-2 text-xl font-black text-stone-900">Suspend and resume checkout</h3>
-                <p className="mt-1 text-sm text-stone-500">Saved checkouts keep item snapshots, customer details, and notes for up to 24 hours.</p>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">{tCheckout('savedCheckouts')}</div>
+                <h3 className="mt-2 text-xl font-black text-stone-900">{tCheckout('suspendResumeTitle')}</h3>
+                <p className="mt-1 text-sm text-stone-500">{tCheckout('suspendResumeDesc')}</p>
               </div>
-              <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3 text-right"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Saved carts & quotes</div><div className="mt-1 text-2xl font-black text-stone-950">{parkedSales.length}</div></div>
+              <div className="rounded-[20px] border border-stone-200 bg-white px-4 py-3 text-end"><div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{tCheckout('savedCartsQuotes')}</div><div className="mt-1 text-2xl font-black text-stone-950">{parkedSales.length}</div></div>
             </div>
             <div className="mt-4 space-y-3">
               {parkedSales.length ? parkedSales.map((parkedSale) => (
@@ -1861,13 +2215,13 @@ export default function CheckoutClient({
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-700">Held</span>
-                        <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">{parkedSale.itemCount} item(s)</span>
-                        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${parkedSale.type === 'QUOTE' ? 'border border-sky-200 bg-sky-50 text-sky-700' : 'border border-stone-200 bg-stone-50 text-stone-600'}`}>{parkedSale.type === 'QUOTE' ? 'Quote' : 'Saved cart'}</span>
+                        <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-sky-700">{tCheckout('held')}</span>
+                        <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-600">{tCheckout('unsyncedSales', { count: parkedSale.itemCount })}</span>
+                        <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${parkedSale.type === 'QUOTE' ? 'border border-sky-200 bg-sky-50 text-sky-700' : 'border border-stone-200 bg-stone-50 text-stone-600'}`}>{parkedSale.type === 'QUOTE' ? tCheckout('quote') : tCheckout('savedCart')}</span>
                       </div>
                       <div className="mt-3 text-lg font-black text-stone-950">{money(parkedSale.totalAmount, currencySymbol)}</div>
-                      <div className="mt-1 text-sm text-stone-500">{parkedSale.cashierName}{parkedSale.customerName ? ` / ${parkedSale.customerName}` : ''}</div>
-                      <div className="mt-2 text-xs text-stone-500">Created {dateTime(parkedSale.createdAt)} / Expires {dateTime(parkedSale.expiresAt)}</div>
+                      <div className="mt-1 text-sm text-stone-500">{tCheckout('cashier', { name: parkedSale.cashierName })}{parkedSale.customerName ? ` / ${parkedSale.customerName}` : ''}</div>
+                      <div className="mt-2 text-xs text-stone-500">{tCheckout('createdExpires', { createdAt: dateTime(parkedSale.createdAt), expiresAt: dateTime(parkedSale.expiresAt) })}</div>
                       {parkedSale.quoteReference ? <div className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">{parkedSale.quoteReference}</div> : null}
                       {parkedSale.title ? <div className="mt-2 text-sm font-semibold text-stone-700">{parkedSale.title}</div> : null}
                       {parkedSale.notes ? <div className="mt-3 rounded-[18px] border border-stone-200 bg-stone-50 px-3 py-2 text-sm text-stone-600">{parkedSale.notes}</div> : null}
@@ -1877,17 +2231,117 @@ export default function CheckoutClient({
                         {parkedSale.items.map((item) => `${item.qty}x ${item.productName}${item.variantLabel ? ` (${item.variantLabel})` : ''}`).join(', ')}
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-                        <Button type="button" disabled={resumeLoadingId === parkedSale.id || cancelLoadingId === parkedSale.id} onClick={() => void resumeParkedSale(parkedSale)}>{resumeLoadingId === parkedSale.id ? 'Loading...' : parkedSale.type === 'QUOTE' ? 'Load quote' : 'Resume'}</Button>
-                        <Button type="button" variant="danger" disabled={resumeLoadingId === parkedSale.id || cancelLoadingId === parkedSale.id} onClick={() => void cancelParkedSale(parkedSale)}>{cancelLoadingId === parkedSale.id ? 'Cancelling...' : 'Cancel'}</Button>
+                        <Button type="button" disabled={resumeLoadingId === parkedSale.id || cancelLoadingId === parkedSale.id} onClick={() => void resumeParkedSale(parkedSale)}>{resumeLoadingId === parkedSale.id ? tCheckout('loading') : parkedSale.type === 'QUOTE' ? tCheckout('loadQuote') : tCheckout('resume')}</Button>
+                        <Button type="button" variant="danger" disabled={resumeLoadingId === parkedSale.id || cancelLoadingId === parkedSale.id} onClick={() => void cancelParkedSale(parkedSale)}>{cancelLoadingId === parkedSale.id ? tCheckout('cancelling') : tCheckout('cancel')}</Button>
                       </div>
                     </div>
                   </div>
                 </div>
-              )) : <div className="rounded-[24px] border border-dashed border-stone-300 bg-white px-4 py-5 text-sm text-stone-500">No saved carts or quotes right now.</div>}
+              )) : <div className="rounded-[24px] border border-dashed border-stone-300 bg-white px-4 py-5 text-sm text-stone-500">{tCheckout('noSavedCarts')}</div>}
             </div>
           </div>
         </Card>
       </div>
+
+      {/* ========== Variant Picker Modal ========== */}
+      {variantPickerProductId && (() => {
+        const pickerVariants = products.filter(p => p.productId === variantPickerProductId);
+        const pickerProduct = pickerVariants[0];
+        if (!pickerProduct) return null;
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+            onClick={() => setVariantPickerProductId(null)}
+          >
+            <div
+              className="relative w-full max-w-md rounded-[32px] bg-white shadow-2xl p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="mb-5">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-sky-700">المواصفات الفنية والتعبئة البحرية</div>
+                <div className="mt-1 text-xl font-black text-stone-900">{pickerProduct.name}</div>
+                <div className="mt-1 text-sm text-stone-500">{pickerProduct.category?.name ?? ''}</div>
+              </div>
+
+              {/* Variants grid */}
+              <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
+                {pickerVariants.map((variant) => {
+                  const inCart = cart.filter(c => c.id === variant.id).reduce((s, c) => s + c.qty, 0);
+                  const available = Math.max(0, variant.stockQty - inCart);
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      disabled={available <= 0}
+                      onClick={() => {
+                        setScanFeedback(null);
+                        addToCart(variant);
+                        setVariantPickerProductId(null);
+                      }}
+                      className={`flex items-center justify-between rounded-2xl border px-4 py-3.5 text-start transition-all ${
+                        available <= 0
+                          ? 'border-stone-100 bg-stone-50 opacity-50 cursor-not-allowed'
+                          : 'border-stone-200 bg-white hover:border-sky-500 hover:bg-sky-50/40 hover:shadow-md active:scale-[0.98]'
+                      }`}
+                    >
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {(() => {
+                            const label = variant.variantLabel || '';
+                            const parts = label.split(' / ').map(p => p.trim()).filter(Boolean);
+                            if (parts.length > 0) {
+                              return parts.map((part, pIdx) => {
+                                const isSize = ['S', 'M', 'L', 'XL', '2XL', '3XL', 'Free Size'].includes(part) || /^[SMLX0-9\-]+$/i.test(part);
+                                return (
+                                  <span
+                                    key={pIdx}
+                                    className={`rounded-lg px-2 py-0.5 text-[11px] font-bold ${
+                                      isSize
+                                        ? 'bg-stone-100 text-stone-700 border border-stone-200'
+                                        : 'bg-sky-50 text-sky-800 border border-sky-100'
+                                    }`}
+                                  >
+                                    {part}
+                                  </span>
+                                );
+                              });
+                            }
+                            return (
+                              <span className="text-stone-900 font-semibold text-sm">
+                                {variant.sku || variant.barcode || '—'}
+                              </span>
+                            );
+                          })()}
+                        </div>
+                        <div className="mt-1 text-xs text-stone-500">
+                          {available > 0 ? `${available} قطعة متاحة` : 'نفدت الكمية'}
+                        </div>
+                      </div>
+                      <div className="text-end">
+                        <div className="font-black text-blue-900">{money(variant.price, currencySymbol)}</div>
+                        {inCart > 0 && (
+                          <div className="mt-0.5 text-[10px] text-purple-600 font-semibold">{inCart} في السلة</div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Close button */}
+              <button
+                type="button"
+                onClick={() => setVariantPickerProductId(null)}
+                className="mt-5 w-full rounded-2xl border border-stone-200 bg-stone-50 py-3 text-sm font-semibold text-stone-700 transition hover:bg-stone-100"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

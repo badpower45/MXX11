@@ -8,16 +8,6 @@ import { buildAppUrl, isMailConfigured, sendEmailVerificationEmail } from '@/lib
 
 export async function POST(request: Request) {
   try {
-    if (!isMailConfigured()) {
-      return NextResponse.json(
-        {
-          error:
-            'Email delivery is not configured yet. Set the SMTP and mail environment variables before allowing sign-ups.'
-        },
-        { status: 503 }
-      );
-    }
-
     const body = await request.json();
     const parsed = registerSchema.safeParse(body);
     if (!parsed.success) {
@@ -37,7 +27,8 @@ export async function POST(request: Request) {
         data: {
           name: parsed.data.name,
           email: parsed.data.email,
-          passwordHash: await hashPassword(parsed.data.password)
+          passwordHash: await hashPassword(parsed.data.password),
+          emailVerifiedAt: new Date()
         },
         select: { id: true, email: true, name: true }
       });
@@ -68,47 +59,31 @@ export async function POST(request: Request) {
     });
 
     const verificationUrl = buildAppUrl(`/verify-email?token=${verificationToken}`, request);
+    let emailSent = false;
 
-    try {
-      await sendEmailVerificationEmail({
-        to: {
-          email: created.user.email,
-          name: created.user.name
-        },
-        verificationUrl,
-        expiresAt
-      });
-    } catch (mailError) {
-      console.error('Failed to send verification email. Rolling back user creation.', mailError);
-
-      await prisma.$transaction(async (tx) => {
-        await tx.emailVerificationToken.deleteMany({
-          where: {
-            id: created.tokenId,
-            userId: created.user.id
-          }
+    if (isMailConfigured()) {
+      try {
+        await sendEmailVerificationEmail({
+          to: {
+            email: created.user.email,
+            name: created.user.name
+          },
+          verificationUrl,
+          expiresAt
         });
-
-        await tx.user.delete({
-          where: { id: created.user.id }
-        });
-      });
-
-      return NextResponse.json(
-        {
-          error: 'Unable to send the verification email right now. Please try again after checking your mail settings.'
-        },
-        { status: 502 }
-      );
+        emailSent = true;
+      } catch (mailError) {
+        console.error('Failed to send verification email. Continuing since account is auto-verified.', mailError);
+      }
     }
 
     return NextResponse.json(
       {
         ok: true,
         user: created.user,
-        emailSent: true,
+        emailSent,
         expiresAt: expiresAt.toISOString(),
-        message: 'Account created. Check your inbox to verify the email address before signing in.'
+        message: 'Account created and verified successfully.'
       },
       { status: 201 }
     );

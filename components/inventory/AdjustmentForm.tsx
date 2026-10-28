@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { type FormEvent, useMemo, useState } from 'react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import { summarizeConversions } from '@/lib/uom';
+import { summarizeConversions } from '@/lib/uom-utils';
 import { buildVariantLabel } from '@/lib/product-merchandising';
+import { useLocalizedPath, useTranslations } from '@/lib/i18n/client';
 
 type Product = {
   id: string;
@@ -53,6 +54,8 @@ export default function AdjustmentForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const t = useTranslations('inventory');
+  const lp = useLocalizedPath();
 
   const selectedProduct = useMemo(
     () => activeProducts.find((product) => product.id === productId),
@@ -67,22 +70,22 @@ export default function AdjustmentForm({
     const parsedQty = Number(qty);
 
     if (!productId) {
-      setError('Please select a product.');
+      setError(t('selectProductError'));
       return;
     }
 
     if (!reasonId) {
-      setError('Please select an adjustment reason.');
+      setError(t('selectReasonError'));
       return;
     }
 
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
-      setError('Adjustment quantity must be greater than 0.');
+      setError(t('qtyPositiveError'));
       return;
     }
 
     if (adjustmentType === 'REMOVE' && selectedProduct && parsedQty > selectedProduct.stockQty) {
-      setError('Cannot remove more stock than currently available.');
+      setError(t('qtyExceedsError'));
       return;
     }
 
@@ -103,22 +106,22 @@ export default function AdjustmentForm({
       });
 
       const data = await response.json().catch(() => ({
-        error: 'Failed to save stock correction.'
+        error: t('saveAdjustmentError')
       }));
 
       setLoading(false);
 
       if (!response.ok) {
-        setError(data.error ?? 'Failed to save stock correction.');
+        setError(data.error ?? t('saveAdjustmentError'));
         return;
       }
 
-      setSuccess('Stock correction recorded successfully. Refresh the page to see the latest stock snapshot.');
+      setSuccess(t('saveAdjustmentSuccess'));
       setQty('1');
       setNotes('');
     } catch {
       setLoading(false);
-      setError('Failed to save stock correction.');
+      setError(t('saveAdjustmentError'));
     }
   }
 
@@ -126,29 +129,29 @@ export default function AdjustmentForm({
     <form onSubmit={onSubmit} className="space-y-5">
       {!activeProducts.length ? (
         <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-5 text-sm text-stone-600">
-          <div className="font-semibold text-stone-900">No products are ready for stock corrections yet.</div>
-          <div className="mt-2">Create products first, then use this screen only for exceptional corrections that do not belong in stock counts, supplier returns, or branch transfers.</div>
+          <div className="font-semibold text-stone-900">{t('noProductsForAdjustments')}</div>
+          <div className="mt-2">{t('createProductsFirst')}</div>
           <div className="mt-3 flex flex-wrap gap-3">
-            <Link href="/products" className="font-semibold text-emerald-700 hover:text-emerald-800">
-              Open products
+            <Link href={lp('/products')} className="font-semibold text-blue-700 hover:text-blue-800">
+              {t('openProducts')}
             </Link>
-            <Link href="/stock-counts" className="font-semibold text-stone-700 hover:text-stone-900">
-              Start a stock count
+            <Link href={lp('/stock-counts')} className="font-semibold text-stone-700 hover:text-stone-900">
+              {t('startCount')}
             </Link>
           </div>
         </div>
       ) : null}
 
       <div>
-        <label className="mb-2 block text-sm font-semibold text-stone-700">Product</label>
+        <label className="mb-2 block text-sm font-semibold text-stone-700">{t('productLabel')}</label>
         <select
-          className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+          className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white"
           value={productId}
           onChange={(event) => setProductId(event.target.value)}
         >
           {activeProducts.map((product) => (
             <option key={product.id} value={product.id}>
-              {product.name} | Current stock: {product.stockQty}
+              {product.name} | {t('currentStockShort', { qty: product.stockQty })}
             </option>
           ))}
         </select>
@@ -156,21 +159,21 @@ export default function AdjustmentForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="mb-2 block text-sm font-semibold text-stone-700">Correction direction</label>
+          <label className="mb-2 block text-sm font-semibold text-stone-700">{t('directionLabel')}</label>
           <select
-            className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+            className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white"
             value={adjustmentType}
             onChange={(event) => setAdjustmentType(event.target.value as 'ADD' | 'REMOVE')}
           >
-            <option value="ADD">Add stock</option>
-            <option value="REMOVE">Remove stock</option>
+            <option value="ADD">{t('addStock')}</option>
+            <option value="REMOVE">{t('removeStock')}</option>
           </select>
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-semibold text-stone-700">Business reason</label>
+          <label className="mb-2 block text-sm font-semibold text-stone-700">{t('reasonLabel')}</label>
           <select
-            className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:bg-white"
+            className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-3 text-sm outline-none transition focus:border-blue-500 focus:bg-white"
             value={reasonId}
             onChange={(event) => setReasonId(event.target.value)}
           >
@@ -183,19 +186,19 @@ export default function AdjustmentForm({
         </div>
 
         <div>
-          <label className="mb-2 block text-sm font-semibold text-stone-700">Quantity</label>
-          <Input type="number" min="1" placeholder="Enter quantity" value={qty} onChange={(event) => setQty(event.target.value)} />
+          <label className="mb-2 block text-sm font-semibold text-stone-700">{t('qtyLabel')}</label>
+          <Input type="number" min="1" placeholder={t('qtyPlaceholder')} value={qty} onChange={(event) => setQty(event.target.value)} />
         </div>
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-semibold text-stone-700">Notes</label>
-        <Input placeholder="Supporting notes (optional)" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        <label className="mb-2 block text-sm font-semibold text-stone-700">{t('notesLabel')}</label>
+        <Input placeholder={t('notesPlaceholder')} value={notes} onChange={(event) => setNotes(event.target.value)} />
       </div>
 
       {selectedProduct ? (
         <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-          Selected product: <span className="font-semibold text-stone-900">{selectedProduct.name}</span> | Current stock: <span className="font-semibold text-stone-900">{selectedProduct.stockQty}</span> {selectedProduct.baseUnitOfMeasure?.name.toLowerCase() ?? 'base units'}
+          {t('productLabel')}: <span className="font-semibold text-stone-900">{selectedProduct.name}</span> | {t('currentStockShort', { qty: '' })} <span className="font-semibold text-stone-900">{selectedProduct.stockQty}</span> {selectedProduct.baseUnitOfMeasure?.name ?? t('baseUnitsDefault')}
           <div className="mt-1 text-xs text-stone-500">
             {summarizeConversions(
               selectedProduct.uomConversions.map((conversion) => ({
@@ -207,14 +210,18 @@ export default function AdjustmentForm({
           </div>
           {selectedProduct.variants.length ? (
             <div className="mt-1 text-xs text-stone-500">
-              Variants: {selectedProduct.variants.map((variant) => buildVariantLabel(variant) || variant.sku || variant.barcode || 'Variant').join(' • ')}
+              {t('variantsLabel', {
+                variants: selectedProduct.variants
+                  .map((variant) => buildVariantLabel(variant) || variant.sku || variant.barcode || 'variant')
+                  .join(' • ')
+              })}
             </div>
           ) : null}
         </div>
       ) : null}
 
       <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
-        Use stock counts for variances, supplier returns for vendor-related removals, and branch transfers for inter-branch movement. This form is best for write-offs, internal use, and opening-balance corrections.
+        {t('adjustmentDisclaimer')}
       </div>
 
       {error ? (
@@ -222,11 +229,11 @@ export default function AdjustmentForm({
       ) : null}
 
       {success ? (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div>
       ) : null}
 
       <Button type="submit" disabled={loading || !activeProducts.length}>
-        {loading ? 'Saving stock correction...' : 'Save stock correction'}
+        {loading ? t('savingAdjustment') : t('saveAdjustment')}
       </Button>
     </form>
   );

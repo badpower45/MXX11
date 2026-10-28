@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       createdByUserId: userId,
       title: parsed.data.title,
       notes: parsed.data.notes,
-      isBlind: parsed.data.isBlind
+      isBlind: parsed.data.isBlind,
+      countType: parsed.data.countType
     });
 
     return NextResponse.json(

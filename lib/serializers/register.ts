@@ -11,6 +11,7 @@ type CashSessionWithUsers = CashSession & {
   closedByUser?: Pick<User, 'id' | 'name' | 'email'> | null;
   reviewedByUser?: Pick<User, 'id' | 'name' | 'email'> | null;
   reopenedByUser?: Pick<User, 'id' | 'name' | 'email'> | null;
+  movements?: Array<any>;
 };
 
 export type SerializedRegisterTimelineEntry = {
@@ -21,6 +22,7 @@ export type SerializedRegisterTimelineEntry = {
   amount: string;
   note: string | null;
   reference: string | null;
+  referenceId: string | null;
   userName: string | null;
 };
 
@@ -29,16 +31,23 @@ export type SerializedCashMovementSummary = {
   type: CashMovementType;
   amount: string;
   note: string | null;
+  drawer: string;
   createdAt: string;
   createdByName: string | null;
 };
 
 export type SerializedRegisterSessionSummary = {
   expectedCash: string;
+  expectedInstaPay: string;
+  expectedWallet: string;
   salesCount: number;
   grossSalesTotal: string;
   cashSalesTotal: string;
+  instaPaySalesTotal: string;
+  walletSalesTotal: string;
   refundCashTotal: string;
+  refundInstaPayTotal: string;
+  refundWalletTotal: string;
   paymentBreakdown: Array<{ method: string; amount: string }>;
   movementTotals: Record<CashMovementType, string>;
   movements: SerializedCashMovementSummary[];
@@ -58,6 +67,12 @@ export type SerializedCashSession = {
   closingExpected: string | null;
   closingActual: string | null;
   variance: string | null;
+  closingExpectedCash: string | null;
+  closingActualCash: string | null;
+  closingExpectedInstaPay: string | null;
+  closingActualInstaPay: string | null;
+  closingExpectedWallet: string | null;
+  closingActualWallet: string | null;
   denominationBreakdown: RegisterDenominationSnapshot;
   reviewedAt: string | null;
   reviewedByName: string | null;
@@ -67,6 +82,7 @@ export type SerializedCashSession = {
   reopenReason: string | null;
   notes: string | null;
   status: CashSessionStatus;
+  movements?: SerializedCashMovementSummary[];
 };
 
 export type SerializedActiveCashSession = SerializedCashSession & {
@@ -86,10 +102,16 @@ export function serializeRegisterSessionSummary(
 ): SerializedRegisterSessionSummary {
   return {
     expectedCash: summary.expectedCash.toFixed(2),
+    expectedInstaPay: summary.expectedInstaPay.toFixed(2),
+    expectedWallet: summary.expectedWallet.toFixed(2),
     salesCount: summary.salesCount,
     grossSalesTotal: summary.grossSalesTotal.toFixed(2),
     cashSalesTotal: summary.cashSalesTotal.toFixed(2),
+    instaPaySalesTotal: summary.instaPaySalesTotal.toFixed(2),
+    walletSalesTotal: summary.walletSalesTotal.toFixed(2),
     refundCashTotal: summary.refundCashTotal.toFixed(2),
+    refundInstaPayTotal: summary.refundInstaPayTotal.toFixed(2),
+    refundWalletTotal: summary.refundWalletTotal.toFixed(2),
     paymentBreakdown: summary.paymentBreakdown.map((entry) => ({
       method: entry.method,
       amount: entry.amount.toFixed(2)
@@ -105,6 +127,7 @@ export function serializeRegisterSessionSummary(
       type: movement.type,
       amount: movement.amount.toFixed(2),
       note: movement.note,
+      drawer: movement.drawer,
       createdAt: movement.createdAt.toISOString(),
       createdByName: movement.createdByName
     })),
@@ -116,6 +139,7 @@ export function serializeRegisterSessionSummary(
       amount: entry.amount.toFixed(2),
       note: entry.note,
       reference: entry.reference,
+      referenceId: entry.referenceId ?? null,
       userName: entry.userName
     }))
   };
@@ -140,6 +164,12 @@ export function serializeCashSession(session: CashSessionWithUsers): SerializedC
     closingExpected: session.closingExpected?.toString() ?? null,
     closingActual: session.closingActual?.toString() ?? null,
     variance: session.variance?.toString() ?? null,
+    closingExpectedCash: session.closingExpectedCash?.toString() ?? null,
+    closingActualCash: session.closingActualCash?.toString() ?? null,
+    closingExpectedInstaPay: session.closingExpectedInstaPay?.toString() ?? null,
+    closingActualInstaPay: session.closingActualInstaPay?.toString() ?? null,
+    closingExpectedWallet: session.closingExpectedWallet?.toString() ?? null,
+    closingActualWallet: session.closingActualWallet?.toString() ?? null,
     denominationBreakdown: normalizeDenominationSnapshot(session.denominationBreakdown),
     reviewedAt: session.reviewedAt?.toISOString() ?? null,
     reviewedByName: getDisplayName(session.reviewedByUser),
@@ -148,6 +178,15 @@ export function serializeCashSession(session: CashSessionWithUsers): SerializedC
     reopenedByName: getDisplayName(session.reopenedByUser),
     reopenReason: session.reopenReason ?? null,
     notes: session.notes ?? null,
-    status: session.status
+    status: session.status,
+    movements: session.movements?.map((m: any) => ({
+      id: m.id,
+      type: m.type,
+      amount: m.amount.toString(),
+      note: m.note,
+      drawer: m.drawer ?? 'CASH',
+      createdAt: m.createdAt.toISOString(),
+      createdByName: m.createdByUser?.name ?? m.createdByUser?.email ?? null
+    }))
   };
 }

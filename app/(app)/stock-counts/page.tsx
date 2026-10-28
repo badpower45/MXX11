@@ -2,9 +2,12 @@ import AppHeader from '@/components/layout/AppHeader';
 import StockCountsManager from '@/components/inventory/StockCountsManager';
 import { requirePageRole } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function StockCountsPage() {
   const { shopId } = await requirePageRole('CASHIER');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   const stockCounts = await prisma.stockCount.findMany({
     where: { shopId },
@@ -34,8 +37,8 @@ export default async function StockCountsPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Stock Counts"
-        subtitle="Run formal stock takes with blind count support, per-product count sheets, approval before posting, and a clear variance trail."
+        title={t('stockCounts.title')}
+        subtitle={t('stockCounts.subtitle')}
       />
 
       <StockCountsManager

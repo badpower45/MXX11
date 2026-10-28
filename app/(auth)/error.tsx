@@ -2,19 +2,21 @@
 
 import { useEffect } from 'react';
 import ErrorState from '@/components/system/ErrorState';
+import { useTranslations } from '@/lib/i18n/client';
 
 export default function AuthSegmentError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
+  const t = useTranslations('errors');
   useEffect(() => {
     console.error(error);
   }, [error]);
 
   return (
     <ErrorState
-      title="Authentication screen failed to load"
-      message="We could not finish loading the sign-in or account access flow. Try again, then return to the login screen if needed."
+      title={t('authTitle')}
+      message={t('authMessage')}
       onReset={reset}
       homeHref="/login"
-      homeLabel="Back to sign in"
+      homeLabel={t('backToSignIn')}
     />
   );
 }

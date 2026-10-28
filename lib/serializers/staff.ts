@@ -22,6 +22,8 @@ export type SerializedStaffListItem = {
   disabledAt: string | null;
   lastLogin: string | null;
   customPermissions: PermissionKey[];
+  baseSalary: string | null;
+  commissionRate: string | null;
 };
 
 export function serializeStaffListItem(record: StaffMembershipRecord): SerializedStaffListItem {
@@ -40,7 +42,9 @@ export function serializeStaffListItem(record: StaffMembershipRecord): Serialize
     lastLogin: record.user.authAuditLogs?.[0]?.createdAt.toISOString() ?? null,
     customPermissions: Array.isArray(record.customPermissions)
       ? (record.customPermissions.filter((value): value is PermissionKey => typeof value === 'string') as PermissionKey[])
-      : []
+      : [],
+    baseSalary: record.baseSalary ? record.baseSalary.toString() : null,
+    commissionRate: record.commissionRate ? record.commissionRate.toString() : null
   };
 }
 

@@ -107,7 +107,7 @@ export async function POST(request: Request) {
         },
         resetUrl,
         expiresAt,
-        issuedByName: 'Vertex POS',
+        issuedByName: 'Volar',
         shopName: null
       });
     } catch (mailError) {

@@ -69,8 +69,30 @@ function serializeProduct(product: {
 export async function GET() {
   try {
     const { shopId } = await requirePermission('EDIT_PRODUCTS');
+
+    const activeShop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, posType: true, linkedShopId: true }
+    });
+
+    const whereClause: any = {};
+
+    if (activeShop?.posType === 'MOTORCYCLE_AND_SPARE_PARTS') {
+      if (activeShop.linkedShopId) {
+        whereClause.OR = [
+          { shopId, productType: 'MOTORCYCLE' },
+          { shopId: activeShop.linkedShopId, productType: 'SPARE_PART' }
+        ];
+      } else {
+        whereClause.shopId = shopId;
+        whereClause.productType = 'MOTORCYCLE';
+      }
+    } else {
+      whereClause.shopId = shopId;
+    }
+
     const products = await prisma.product.findMany({
-      where: { shopId },
+      where: whereClause,
       include: {
         category: true,
         baseUnitOfMeasure: true,
@@ -111,7 +133,12 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const { shopId, userId } = await requirePermission('EDIT_PRODUCTS');
-    const units = await ensureUnitsOfMeasure(shopId);
+
+    const activeShop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: { id: true, posType: true, linkedShopId: true }
+    });
+
     const body = await request.json();
     const parsed = productSchema.safeParse(body);
 
@@ -121,6 +148,12 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const targetShopId = (parsed.data.productType === 'SPARE_PART' && activeShop?.linkedShopId)
+      ? activeShop.linkedShopId
+      : shopId;
+
+    const units = await ensureUnitsOfMeasure(targetShopId);
 
     const payload = {
       ...parsed.data,
@@ -139,6 +172,7 @@ export async function POST(request: Request) {
         barcode: normalizeText(variant.barcode),
         priceOverride: variant.priceOverride ?? null,
         costOverride: variant.costOverride ?? null,
+        stockQty: variant.stockQty,
         isActive: variant.isActive
       })),
       images: parsed.data.images.map((image) => ({
@@ -187,13 +221,13 @@ export async function POST(request: Request) {
     const [category, duplicateByName, duplicateBySku, duplicateByBarcode, duplicateVariantSku, duplicateVariantBarcode, productSkuConflictWithVariant, productBarcodeConflictWithVariant] = await Promise.all([
       payload.categoryId
         ? prisma.category.findFirst({
-            where: { id: payload.categoryId, shopId, isActive: true },
+            where: { id: payload.categoryId, shopId: targetShopId, isActive: true },
             select: { id: true }
           })
         : Promise.resolve(null),
       prisma.product.findFirst({
         where: {
-          shopId,
+          shopId: targetShopId,
           name: {
             equals: payload.name,
             mode: 'insensitive'
@@ -203,13 +237,13 @@ export async function POST(request: Request) {
       }),
       payload.sku
         ? prisma.product.findFirst({
-            where: { shopId, sku: payload.sku },
+            where: { shopId: targetShopId, sku: payload.sku },
             select: { id: true }
           })
         : Promise.resolve(null),
       payload.barcode
         ? prisma.product.findFirst({
-            where: { shopId, barcode: payload.barcode },
+            where: { shopId: targetShopId, barcode: payload.barcode },
             select: { id: true }
           })
         : Promise.resolve(null),
@@ -217,7 +251,7 @@ export async function POST(request: Request) {
         ? prisma.productVariant.findFirst({
             where: {
               sku: { in: variantSkus },
-              product: { shopId }
+              product: { shopId: targetShopId }
             },
             select: { id: true, sku: true }
           })
@@ -226,7 +260,7 @@ export async function POST(request: Request) {
         ? prisma.productVariant.findFirst({
             where: {
               barcode: { in: variantBarcodes },
-              product: { shopId }
+              product: { shopId: targetShopId }
             },
             select: { id: true, barcode: true }
           })
@@ -234,7 +268,7 @@ export async function POST(request: Request) {
       variantSkus.length
         ? prisma.product.findFirst({
             where: {
-              shopId,
+              shopId: targetShopId,
               sku: { in: variantSkus }
             },
             select: { id: true, sku: true }
@@ -243,7 +277,7 @@ export async function POST(request: Request) {
       variantBarcodes.length
         ? prisma.product.findFirst({
             where: {
-              shopId,
+              shopId: targetShopId,
               barcode: { in: variantBarcodes }
             },
             select: { id: true, barcode: true }
@@ -281,7 +315,7 @@ export async function POST(request: Request) {
     const product = await prisma.$transaction(async (tx) => {
       const createdProduct = await tx.product.create({
         data: {
-          shopId,
+          shopId: targetShopId,
           categoryId: payload.categoryId,
           baseUnitOfMeasureId: payload.baseUnitOfMeasureId,
           sku: payload.sku,
@@ -290,10 +324,27 @@ export async function POST(request: Request) {
           description: payload.description,
           cost: payload.cost,
           price: payload.price,
-          stockQty: payload.stockQty,
+          stockQty: payload.variants.length > 0
+            ? payload.variants.reduce((sum, v) => sum + (v.stockQty ?? 0), 0)
+            : payload.stockQty,
           reorderPoint: payload.reorderPoint,
           trackBatches: payload.trackBatches,
           trackExpiry: payload.trackExpiry,
+          productType: payload.productType,
+          brand: payload.brand,
+          supplierPrice: payload.supplierPrice,
+          dealerCode: payload.dealerCode,
+          assemblyCost: payload.assemblyCost,
+          externalTransportCost: payload.externalTransportCost,
+          internalTransportCost: payload.internalTransportCost,
+          maintenanceCost: payload.maintenanceCost,
+          otherCosts: payload.otherCosts,
+          condition: payload.condition,
+          color: payload.color,
+          motorNumber: payload.motorNumber,
+          chassisNumber: payload.chassisNumber,
+          chassisPhotoUrl: payload.chassisPhotoUrl,
+          motorPhotoUrl: payload.motorPhotoUrl,
           uomConversions: {
             create: normalizedConversions.map((conversion) => ({
               unitOfMeasureId: conversion.unitOfMeasureId,
@@ -310,6 +361,7 @@ export async function POST(request: Request) {
               barcode: variant.barcode,
               priceOverride: variant.priceOverride,
               costOverride: variant.costOverride,
+              stockQty: variant.stockQty,
               isActive: variant.isActive
             }))
           },
@@ -368,7 +420,7 @@ export async function POST(request: Request) {
       if (payload.stockQty > 0) {
         await tx.inventoryMovement.create({
           data: {
-            shopId,
+            shopId: targetShopId,
             productId: createdProduct.id,
             type: 'OPENING_STOCK',
             qtyChange: payload.stockQty,
@@ -380,7 +432,7 @@ export async function POST(request: Request) {
 
       await logActivity({
         tx,
-        shopId,
+        shopId: targetShopId,
         userId,
         action: 'PRODUCT_CREATED',
         entityType: 'Product',

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Badge from '@/components/ui/Badge';
 import Card from '@/components/ui/Card';
 import { dateTime, money } from '@/lib/format';
+import { useTranslations } from '@/lib/i18n/client';
 
 type ReturnRecord = {
   id: string;
@@ -33,16 +34,18 @@ export default function ReturnsTable({
   items: ReturnRecord[];
   currencySymbol: string;
 }) {
+  const t = useTranslations('returns');
+
   return (
     <Card>
       <div className="mb-4 flex items-end justify-between gap-4">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700">Returns history</div>
-          <h2 className="mt-2 text-xl font-black text-stone-900">Refunds, voids, and exchanges</h2>
-          <p className="mt-1 text-sm text-stone-500">Every adjustment is linked back to the sale, reason, operator, approver, and printable receipt.</p>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700">{t('historyTitle')}</div>
+          <h2 className="mt-2 text-xl font-black text-stone-900">{t('sectionTitle')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('sectionDesc')}</p>
         </div>
         <div className="rounded-full border border-stone-200 bg-stone-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-500">
-          {items.length} record(s)
+          {t('recordsCount', { count: items.length })}
         </div>
       </div>
 
@@ -51,13 +54,13 @@ export default function ReturnsTable({
           <table className="min-w-full text-left text-sm">
             <thead className="bg-stone-50 text-stone-500">
               <tr>
-                <th className="px-4 py-3.5">Adjustment</th>
-                <th className="px-4 py-3.5">Sale</th>
-                <th className="px-4 py-3.5">Reason</th>
-                <th className="px-4 py-3.5">Amount</th>
-                <th className="px-4 py-3.5">Users</th>
-                <th className="px-4 py-3.5">When</th>
-                <th className="px-4 py-3.5">Actions</th>
+                <th className="px-4 py-3.5">{t('columns.adjustment')}</th>
+                <th className="px-4 py-3.5">{t('columns.sale')}</th>
+                <th className="px-4 py-3.5">{t('columns.reason')}</th>
+                <th className="px-4 py-3.5">{t('columns.amount')}</th>
+                <th className="px-4 py-3.5">{t('columns.users')}</th>
+                <th className="px-4 py-3.5">{t('columns.when')}</th>
+                <th className="px-4 py-3.5">{t('columns.actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -68,23 +71,23 @@ export default function ReturnsTable({
                     <div className="mt-1"><Badge tone={toneForType(item.type)}>{item.type}</Badge></div>
                   </td>
                   <td className="px-4 py-4">
-                    <Link href={`/sales/${item.saleId}`} className="font-semibold text-emerald-700">{item.saleNumber}</Link>
-                    <div className="mt-1 text-xs text-stone-500">{item.itemCount} item(s)</div>
+                    <Link href={`/sales/${item.saleId}`} className="font-semibold text-blue-700">{item.saleNumber}</Link>
+                    <div className="mt-1 text-xs text-stone-500">{t('itemsCount', { count: item.itemCount })}</div>
                   </td>
                   <td className="max-w-sm px-4 py-4 text-stone-700">{item.reason}</td>
                   <td className="px-4 py-4">
                     <div className="font-semibold text-stone-900">{money(item.totalAmount, currencySymbol)}</div>
-                    <div className="mt-1 text-xs text-stone-500">Credit {money(item.subtotal, currencySymbol)}</div>
+                    <div className="mt-1 text-xs text-stone-500">{t('credit', { amount: money(item.subtotal, currencySymbol) })}</div>
                   </td>
                   <td className="px-4 py-4 text-stone-600">
                     <div>{item.createdBy}</div>
-                    <div className="mt-1 text-xs text-stone-500">Approved by {item.approvedBy}</div>
+                    <div className="mt-1 text-xs text-stone-500">{t('approvedBy', { user: item.approvedBy })}</div>
                   </td>
                   <td className="px-4 py-4 text-stone-600">{dateTime(item.createdAt)}</td>
                   <td className="px-4 py-4">
                     <div className="flex flex-col gap-2">
-                      <Link href={`/print/refund/${item.id}`} className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600">Receipt</Link>
-                      <Link href={`/sales/${item.saleId}`} className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-600 hover:text-stone-900">Sale</Link>
+                      <Link href={`/print/refund/${item.id}`} className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-600">{t('receipt')}</Link>
+                      <Link href={`/sales/${item.saleId}`} className="text-xs font-semibold uppercase tracking-[0.14em] text-stone-600 hover:text-stone-900">{t('saleLink')}</Link>
                     </div>
                   </td>
                 </tr>
@@ -93,7 +96,7 @@ export default function ReturnsTable({
           </table>
         </div>
 
-        {!items.length ? <div className="border-t border-stone-200 bg-stone-50 py-8 text-center text-sm text-stone-500">No return activity yet.</div> : null}
+        {!items.length ? <div className="border-t border-stone-200 bg-stone-50 py-8 text-center text-sm text-stone-500">{t('noActivity')}</div> : null}
       </div>
     </Card>
   );

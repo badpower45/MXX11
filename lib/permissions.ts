@@ -24,7 +24,8 @@ const DEFAULT_ROLE_PERMISSIONS: Record<ShopRole, PermissionKey[]> = {
     'ADJUST_INVENTORY',
     'VIEW_PURCHASE_COSTS'
   ],
-  CASHIER: ['VOID_SALES', 'REFUND_SALES']
+  CASHIER: ['VOID_SALES', 'REFUND_SALES'],
+  STOCK_COUNTER: []
 };
 
 export const PERMISSION_LABELS: Record<PermissionKey, string> = {

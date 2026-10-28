@@ -2,13 +2,12 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useTranslations } from '@/lib/i18n/client';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import { PAYMENT_METHODS, type PaymentMethod } from '@/lib/payments';
 import {
-  getPrinterConnectionLabel,
-  getTaxModeLabel,
   PRINTER_CONNECTION_OPTIONS,
   type PrinterConnectionValue,
   TAX_MODE_OPTIONS,
@@ -58,7 +57,7 @@ type Props = {
 };
 
 const selectClassName =
-  'h-11 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 text-sm text-stone-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] outline-none transition hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10';
+  'h-11 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 text-sm text-stone-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] outline-none transition hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10';
 
 function Section({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
   return (
@@ -73,6 +72,25 @@ function Section({ title, description, children }: { title: string; description:
 }
 
 export default function SettingsForm({ initialValues }: Props) {
+  const t = useTranslations('settings');
+
+  const getLocalizedTaxMode = (mode: string) => {
+    switch (mode) {
+      case 'INCLUSIVE': return t('taxModeInclusive');
+      case 'NON_TAXABLE': return t('taxModeNonTaxable');
+      default: return t('taxModeExclusive');
+    }
+  };
+
+  const getLocalizedPrinterConnection = (conn: string) => {
+    switch (conn) {
+      case 'NETWORK': return t('printerNetwork');
+      case 'BLUETOOTH': return t('printerBluetooth');
+      case 'MANUAL': return t('printerManual');
+      default: return t('printerUsb');
+    }
+  };
+
   const [form, setForm] = useState({ ...initialValues, taxRate: String(initialValues.taxRate) });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -111,61 +129,61 @@ export default function SettingsForm({ initialValues }: Props) {
       })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Unable to save settings.' }));
+    const data = await response.json().catch(() => ({ error: t('saveError') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to save settings.');
+      setError(data.error ?? t('saveError'));
       return;
     }
 
-    setMessage('Settings saved successfully.');
+    setMessage(t('saveSuccess'));
   }
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
       <Card>
-        <h2 className="text-xl font-black text-stone-900">Branch settings</h2>
+        <h2 className="text-xl font-black text-stone-900">{t('branchSettings')}</h2>
         <p className="mt-2 text-sm text-stone-500">
-          Keep the branch identity, tax behavior, checkout defaults, printer setup, and register rules aligned with how this store actually runs.
+          {t('branchSettingsDesc')}
         </p>
       </Card>
 
-      <Section title="Business details" description="Use the legal business name for formal records and the branch name for day-to-day branch operations.">
+      <Section title={t('businessDetails')} description={t('businessDetailsDesc')}>
         <div className="grid gap-4 md:grid-cols-2">
           <Input
-            placeholder="Branch/store name"
+            placeholder={t('shopNamePlaceholder')}
             value={form.shopName}
             onChange={(event) => setForm((current) => ({ ...current, shopName: event.target.value }))}
           />
           <Input
-            placeholder="Legal business name"
+            placeholder={t('legalBusinessNamePlaceholder')}
             value={form.legalBusinessName}
             onChange={(event) => setForm((current) => ({ ...current, legalBusinessName: event.target.value }))}
           />
           <Input
-            placeholder="Phone"
+            placeholder={t('phonePlaceholder')}
             value={form.phone ?? ''}
             onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))}
           />
           <Input
-            placeholder="Email"
+            placeholder={t('emailPlaceholder')}
             value={form.email ?? ''}
             onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
           />
           <Input
-            placeholder="Tax ID / company reference"
+            placeholder={t('taxIdPlaceholder')}
             value={form.taxId ?? ''}
             onChange={(event) => setForm((current) => ({ ...current, taxId: event.target.value }))}
           />
           <Input
-            placeholder="Timezone"
+            placeholder={t('timezonePlaceholder')}
             value={form.timezone}
             onChange={(event) => setForm((current) => ({ ...current, timezone: event.target.value }))}
           />
           <div className="md:col-span-2">
             <Input
-              placeholder="Address"
+              placeholder={t('addressPlaceholder')}
               value={form.address ?? ''}
               onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))}
             />
@@ -173,20 +191,20 @@ export default function SettingsForm({ initialValues }: Props) {
         </div>
       </Section>
 
-      <Section title="Tax and currency" description="These values drive checkout calculations and how totals appear on receipts and reports.">
+      <Section title={t('taxAndCurrency')} description={t('taxAndCurrencyDesc')}>
         <div className="grid gap-4 md:grid-cols-2">
           <Input
-            placeholder="Currency code"
+            placeholder={t('currencyCodePlaceholder')}
             value={form.currencyCode}
             onChange={(event) => setForm((current) => ({ ...current, currencyCode: event.target.value.toUpperCase() }))}
           />
           <Input
-            placeholder="Currency symbol"
+            placeholder={t('currencySymbolPlaceholder')}
             value={form.currencySymbol}
             onChange={(event) => setForm((current) => ({ ...current, currencySymbol: event.target.value }))}
           />
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-stone-700">Tax mode</div>
+            <div className="text-sm font-semibold text-stone-700">{t('taxModeLabel')}</div>
             <select
               className={selectClassName}
               value={form.taxMode}
@@ -194,7 +212,7 @@ export default function SettingsForm({ initialValues }: Props) {
             >
               {TAX_MODE_OPTIONS.map((entry) => (
                 <option key={entry} value={entry}>
-                  {getTaxModeLabel(entry)}
+                  {getLocalizedTaxMode(entry)}
                 </option>
               ))}
             </select>
@@ -202,17 +220,17 @@ export default function SettingsForm({ initialValues }: Props) {
           <Input
             type="number"
             step="0.01"
-            placeholder="Tax rate"
+            placeholder={t('taxRatePlaceholder')}
             value={form.taxRate}
             onChange={(event) => setForm((current) => ({ ...current, taxRate: event.target.value }))}
           />
         </div>
       </Section>
 
-      <Section title="Checkout and register" description="Shape the payment methods cashiers see first and the opening float rule each shift must follow.">
+      <Section title={t('checkoutAndRegister')} description={t('checkoutAndRegisterDesc')}>
         <div className="space-y-4">
           <div>
-            <div className="text-sm font-semibold text-stone-700">Default payment methods</div>
+            <div className="text-sm font-semibold text-stone-700">{t('defaultPaymentMethods')}</div>
             <div className="mt-3 flex flex-wrap gap-2">
               {PAYMENT_METHODS.map((method) => {
                 const active = form.defaultPaymentMethods.includes(method);
@@ -223,7 +241,7 @@ export default function SettingsForm({ initialValues }: Props) {
                     onClick={() => togglePaymentMethod(method)}
                     className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                       active
-                        ? 'border-emerald-600 bg-emerald-600 text-white'
+                        ? 'border-blue-600 bg-blue-600 text-white'
                         : 'border-stone-200 bg-white text-stone-700 hover:border-stone-300 hover:bg-stone-50'
                     }`}
                   >
@@ -241,18 +259,18 @@ export default function SettingsForm({ initialValues }: Props) {
                 checked={form.openingFloatRequired}
                 onChange={(event) => setForm((current) => ({ ...current, openingFloatRequired: event.target.checked }))}
               />
-              Require a minimum opening float before a register session starts
+              {t('requireOpeningFloat')}
             </label>
             <Input
               type="number"
               step="0.01"
-              placeholder="Required opening float"
+              placeholder={t('openingFloatAmountPlaceholder')}
               value={form.openingFloatAmount}
               onChange={(event) => setForm((current) => ({ ...current, openingFloatAmount: event.target.value }))}
             />
             <Input
               type="number"
-              placeholder="Low stock threshold"
+              placeholder={t('lowStockThresholdPlaceholder')}
               value={String(form.lowStockThreshold)}
               onChange={(event) => setForm((current) => ({ ...current, lowStockThreshold: Number(event.target.value) }))}
             />
@@ -262,11 +280,11 @@ export default function SettingsForm({ initialValues }: Props) {
                 checked={form.lowStockEnabled}
                 onChange={(event) => setForm((current) => ({ ...current, lowStockEnabled: event.target.checked }))}
               />
-              Enable low-stock alerts
+              {t('enableLowStockAlerts')}
             </label>
             <Input
               type="number"
-              placeholder="Offline stock max age (minutes)"
+              placeholder={t('offlineStockMaxAgePlaceholder')}
               value={String(form.offlineStockMaxAgeMinutes)}
               onChange={(event) => setForm((current) => ({ ...current, offlineStockMaxAgeMinutes: Number(event.target.value) }))}
             />
@@ -276,22 +294,22 @@ export default function SettingsForm({ initialValues }: Props) {
                 checked={form.offlineStockStrict}
                 onChange={(event) => setForm((current) => ({ ...current, offlineStockStrict: event.target.checked }))}
               />
-              Block offline checkout when branch stock is stale
+              {t('blockOfflineCheckoutStale')}
             </label>
           </div>
         </div>
       </Section>
 
-      <Section title="Inventory defaults" description="These defaults support low-stock warnings, expiry discipline, and how the branch wants stock rotated operationally.">
+      <Section title={t('inventoryDefaults')} description={t('inventoryDefaultsDesc')}>
         <div className="grid gap-4 md:grid-cols-2">
           <Input
             type="number"
-            placeholder="Default safety stock"
+            placeholder={t('safetyStockPlaceholder')}
             value={String(form.reorderSafetyStock)}
             onChange={(event) => setForm((current) => ({ ...current, reorderSafetyStock: Number(event.target.value) }))}
           />
           <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-600">
-            Smart reorder suggestions use this branch default together with recent sales velocity, supplier lead time, and current stock before creating draft purchase orders.
+            {t('safetyStockNote')}
           </div>
           <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <input
@@ -299,7 +317,7 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.batchTrackingEnabled}
               onChange={(event) => setForm((current) => ({ ...current, batchTrackingEnabled: event.target.checked }))}
             />
-            Enable batch / lot tracking by default
+            {t('enableBatchTracking')}
           </label>
           <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <input
@@ -307,7 +325,7 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.expiryTrackingEnabled}
               onChange={(event) => setForm((current) => ({ ...current, expiryTrackingEnabled: event.target.checked }))}
             />
-            Enable expiry tracking by default
+            {t('enableExpiryTracking')}
           </label>
           <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <input
@@ -315,21 +333,21 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.fefoEnabled}
               onChange={(event) => setForm((current) => ({ ...current, fefoEnabled: event.target.checked }))}
             />
-            Prefer FEFO rotation for expiring stock
+            {t('preferFefo')}
           </label>
           <Input
             type="number"
-            placeholder="Expiry alert days"
+            placeholder={t('expiryAlertDaysPlaceholder')}
             value={String(form.expiryAlertDays)}
             onChange={(event) => setForm((current) => ({ ...current, expiryAlertDays: Number(event.target.value) }))}
           />
         </div>
       </Section>
 
-      <Section title="Receipt and hardware" description="Keep thermal receipt output practical and record the branch's printer or scanner notes without overbuilding hardware integrations.">
+      <Section title={t('receiptAndHardware')} description={t('receiptAndHardwareDesc')}>
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-stone-700">Receipt width</div>
+            <div className="text-sm font-semibold text-stone-700">{t('receiptWidth')}</div>
             <select
               className={selectClassName}
               value={form.receiptWidth}
@@ -337,12 +355,12 @@ export default function SettingsForm({ initialValues }: Props) {
                 setForm((current) => ({ ...current, receiptWidth: event.target.value as ReceiptWidth }))
               }
             >
-              <option value="58mm">58mm thermal roll</option>
-              <option value="80mm">80mm thermal roll</option>
+              <option value="58mm">{t('receiptWidth58')}</option>
+              <option value="80mm">{t('receiptWidth80')}</option>
             </select>
           </div>
           <div className="space-y-2">
-            <div className="text-sm font-semibold text-stone-700">Printer connection</div>
+            <div className="text-sm font-semibold text-stone-700">{t('printerConnection')}</div>
             <select
               className={selectClassName}
               value={form.printerConnection}
@@ -352,7 +370,7 @@ export default function SettingsForm({ initialValues }: Props) {
             >
               {PRINTER_CONNECTION_OPTIONS.map((entry) => (
                 <option key={entry} value={entry}>
-                  {getPrinterConnectionLabel(entry)}
+                  {getLocalizedPrinterConnection(entry)}
                 </option>
               ))}
             </select>
@@ -363,7 +381,7 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.receiptShowBrandMark}
               onChange={(event) => setForm((current) => ({ ...current, receiptShowBrandMark: event.target.checked }))}
             />
-            Show the branch brand mark on thermal receipts
+            {t('receiptShowBrandMark')}
           </label>
           <label className="flex items-center gap-3 rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <input
@@ -371,10 +389,10 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.printerSafeMode}
               onChange={(event) => setForm((current) => ({ ...current, printerSafeMode: event.target.checked }))}
             />
-            Use printer-safe / ESC-POS-friendly formatting
+            {t('printerSafeMode')}
           </label>
           <Input
-            placeholder="Printer name or queue"
+            placeholder={t('printerNamePlaceholder')}
             value={form.printerName}
             onChange={(event) => setForm((current) => ({ ...current, printerName: event.target.value }))}
           />
@@ -384,72 +402,72 @@ export default function SettingsForm({ initialValues }: Props) {
               checked={form.cashDrawerKickEnabled}
               onChange={(event) => setForm((current) => ({ ...current, cashDrawerKickEnabled: event.target.checked }))}
             />
-            Show the cash drawer trigger on print pages
+            {t('cashDrawerKickEnabled')}
           </label>
           <Input
-            placeholder="Receipt header"
+            placeholder={t('receiptHeaderPlaceholder')}
             value={form.receiptHeader ?? ''}
             onChange={(event) => setForm((current) => ({ ...current, receiptHeader: event.target.value }))}
           />
           <div className="md:col-span-2">
             <Input
-              placeholder="Receipt footer"
+              placeholder={t('receiptFooterPlaceholder')}
               value={form.receiptFooter ?? ''}
               onChange={(event) => setForm((current) => ({ ...current, receiptFooter: event.target.value }))}
             />
           </div>
           <div className="md:col-span-2">
             <textarea
-              className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-              placeholder="Barcode scanner notes, printer notes, or cashier guidance"
+              className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+              placeholder={t('barcodeScannerNotesPlaceholder')}
               value={form.barcodeScannerNotes}
               onChange={(event) => setForm((current) => ({ ...current, barcodeScannerNotes: event.target.value }))}
             />
           </div>
           <div className="md:col-span-2 rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-4 text-sm text-stone-600">
-            <div className="font-semibold text-stone-900">Printer test and drawer integration point</div>
+            <div className="font-semibold text-stone-900">{t('printerTestTitle')}</div>
             <div className="mt-2">
-              Open a live thermal test page to verify 58mm or 80mm spacing, compact printer-safe output, receipt barcode clarity, and the live cash drawer trigger before deploying to a register.
+              {t('printerTestBody')}
             </div>
             <div className="mt-4">
               <Link
                 href="/print/receipt/test?autoprint=1"
                 target="_blank"
-                className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
               >
-                Open print test page
+                {t('openPrintTest')}
               </Link>
             </div>
           </div>
         </div>
       </Section>
 
-      <Section title="Document numbering" description="Use short prefixes so sale, receipt, and purchase or invoice references stay branch-specific and easy to read.">
+      <Section title={t('documentNumbering')} description={t('documentNumberingDesc')}>
         <div className="grid gap-4 md:grid-cols-3">
           <Input
-            placeholder="Sale prefix"
+            placeholder={t('salePrefixPlaceholder')}
             value={form.salePrefix}
             onChange={(event) => setForm((current) => ({ ...current, salePrefix: event.target.value.toUpperCase() }))}
           />
           <Input
-            placeholder="Receipt prefix"
+            placeholder={t('receiptPrefixPlaceholder')}
             value={form.receiptPrefix}
             onChange={(event) => setForm((current) => ({ ...current, receiptPrefix: event.target.value.toUpperCase() }))}
           />
           <Input
-            placeholder="Purchase prefix"
+            placeholder={t('purchasePrefixPlaceholder')}
             value={form.purchasePrefix}
             onChange={(event) => setForm((current) => ({ ...current, purchasePrefix: event.target.value.toUpperCase() }))}
           />
         </div>
       </Section>
 
-      {message ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</div> : null}
+      {message ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{message}</div> : null}
       {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
       <div>
         <Button type="submit" disabled={loading}>
-          {loading ? 'Saving settings...' : 'Save settings'}
+          {loading ? t('saving') : t('save')}
         </Button>
       </div>
     </form>

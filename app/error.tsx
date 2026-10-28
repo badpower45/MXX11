@@ -9,14 +9,9 @@ export default function GlobalError({ error, reset }: { error: Error & { digest?
   }, [error]);
 
   return (
-    <html lang="en">
-      <body>
-        <ErrorState
-          title="Vertex POS hit an unexpected error"
-          message="We could not finish loading this page. Try again, then head back to your dashboard if the issue keeps showing up."
-          onReset={reset}
-        />
-      </body>
-    </html>
+    <ErrorState
+      onReset={reset}
+      homeHref="/dashboard"
+    />
   );
 }

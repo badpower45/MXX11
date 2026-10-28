@@ -1,11 +1,12 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import { dateTime } from '@/lib/format';
+import { useTranslations } from '@/lib/i18n/client';
 import {
   getStockTransferStatusLabel,
   stockTransferStatusTone,
@@ -96,7 +97,8 @@ export default function StockTransferManager({
   otherShops,
   sourceProducts,
   destinationProducts,
-  initialTransfers
+  initialTransfers,
+  userRole
 }: {
   activeShopId: string;
   activeShopName: string;
@@ -105,11 +107,15 @@ export default function StockTransferManager({
   sourceProducts: ProductOption[];
   destinationProducts: ProductOption[];
   initialTransfers: StockTransferView[];
+  userRole: string;
 }) {
+  const t = useTranslations('transfers');
+  const tRoot = useTranslations();
   const [history, setHistory] = useState(initialTransfers);
   const [toShopId, setToShopId] = useState(otherShops[0]?.id ?? '');
-  const [fromProductId, setFromProductId] = useState(sourceProducts[0]?.id ?? '');
+  const [fromProductId, setFromProductId] = useState('');
   const [toProductId, setToProductId] = useState('');
+  const [scanQuery, setScanQuery] = useState('');
   const [qty, setQty] = useState('1');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
@@ -118,10 +124,34 @@ export default function StockTransferManager({
   const [loading, setLoading] = useState(false);
   const [busyTransferId, setBusyTransferId] = useState<string | null>(null);
 
+  const searchedProduct = useMemo(() => {
+    const term = scanQuery.trim().toLowerCase();
+    if (!term) return null;
+    return sourceProducts.find(
+      (p) =>
+        (p.barcode && p.barcode.trim() === term) ||
+        (p.sku && p.sku.trim().toLowerCase() === term) ||
+        p.name.toLowerCase().includes(term)
+    ) ?? null;
+  }, [scanQuery, sourceProducts]);
+
   const availableDestinationProducts = useMemo(
     () => destinationProducts.filter((product) => product.shopId === toShopId),
     [destinationProducts, toShopId]
   );
+
+  useEffect(() => {
+    if (searchedProduct) {
+      setFromProductId(searchedProduct.id);
+      const suggestedMatch = matchDestinationProduct(searchedProduct, availableDestinationProducts);
+      setToProductId(suggestedMatch?.id ?? '');
+    } else {
+      setFromProductId('');
+      setToProductId('');
+    }
+  }, [searchedProduct, availableDestinationProducts]);
+
+  const isAdmin = userRole === 'ADMIN';
   const selectedSourceProduct = useMemo(
     () => sourceProducts.find((product) => product.id === fromProductId) ?? null,
     [fromProductId, sourceProducts]
@@ -151,40 +181,46 @@ export default function StockTransferManager({
     setSuccess('');
 
     const sourceProduct = sourceProducts.find((product) => product.id === fromProductId);
-    const destinationProduct = availableDestinationProducts.find((product) => product.id === toProductId);
     const parsedQty = Number(qty);
 
     if (!toShopId) {
-      setError('Select a destination branch first.');
+      setError(t('selectDestinationFirst'));
       return;
     }
 
-    if (!sourceProduct || !destinationProduct) {
-      setError('Select both the source and destination products.');
+    if (!sourceProduct) {
+      setError(t('selectSourceDestinationProducts'));
       return;
     }
 
     if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
-      setError('Transfer quantity must be greater than zero.');
+      setError(t('qtyZeroError'));
       return;
     }
 
     if (parsedQty > sourceProduct.stockQty) {
-      setError(`${sourceProduct.name} only has ${sourceProduct.stockQty} unit(s) available.`);
+      setError(t('qtyExceedsStock', { name: sourceProduct.name, qty: sourceProduct.stockQty }));
       return;
     }
+
+    const matchedDest = toProductId
+      ? (availableDestinationProducts.find((p) => p.id === toProductId) || matchDestinationProduct(sourceProduct, availableDestinationProducts))
+      : matchDestinationProduct(sourceProduct, availableDestinationProducts);
 
     setLines((current) => [
       ...current,
       {
         fromProductId: sourceProduct.id,
-        toProductId: destinationProduct.id,
+        toProductId: matchedDest?.id ?? '',
         fromProductName: sourceProduct.name,
-        toProductName: destinationProduct.name,
+        toProductName: matchedDest ? matchedDest.name : `${sourceProduct.name} (${t('autoCreateProductSuffix')})`,
         qty: parsedQty
       }
     ]);
     setQty('1');
+    setScanQuery('');
+    setFromProductId('');
+    setToProductId('');
   }
 
   function removeLine(index: number) {
@@ -196,12 +232,12 @@ export default function StockTransferManager({
     setSuccess('');
 
     if (!toShopId) {
-      setError('Select a destination branch.');
+      setError(t('selectDestinationFirst'));
       return;
     }
 
     if (!lines.length) {
-      setError('Add at least one transfer line.');
+      setError(t('noTransferLines'));
       return;
     }
 
@@ -219,18 +255,18 @@ export default function StockTransferManager({
         }))
       })
     });
-    const data = await response.json().catch(() => ({ error: 'Unable to create stock transfer.' }));
+    const data = await response.json().catch(() => ({ error: t('unableCreate') }));
     setLoading(false);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to create stock transfer.');
+      setError(data.error ?? t('unableCreate'));
       return;
     }
 
     setHistory((current) => [data.stockTransfer, ...current]);
     setLines([]);
     setNotes('');
-    setSuccess('Stock transfer saved and marked as pending dispatch.');
+    setSuccess(t('sentSuccess'));
   }
 
   async function updateTransfer(transferId: string, action: 'SEND' | 'RECEIVE' | 'CANCEL') {
@@ -243,21 +279,21 @@ export default function StockTransferManager({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action })
     });
-    const data = await response.json().catch(() => ({ error: 'Unable to update stock transfer.' }));
+    const data = await response.json().catch(() => ({ error: t('unableUpdate') }));
     setBusyTransferId(null);
 
     if (!response.ok) {
-      setError(data.error ?? 'Unable to update stock transfer.');
+      setError(data.error ?? t('unableUpdate'));
       return;
     }
 
     replaceTransfer(data.stockTransfer);
     if (action === 'SEND') {
-      setSuccess('Transfer sent and source stock reduced.');
+      setSuccess(t('sentSuccess'));
     } else if (action === 'RECEIVE') {
-      setSuccess('Transfer received and destination stock increased.');
+      setSuccess(t('receivedSuccess'));
     } else {
-      setSuccess('Transfer cancelled.');
+      setSuccess(t('cancelledSuccess'));
     }
   }
 
@@ -265,8 +301,8 @@ export default function StockTransferManager({
     <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
       <Card>
         <div className="mb-4">
-          <div className="text-lg font-black text-stone-900">Create branch transfer</div>
-          <div className="text-sm text-stone-500">Source branch: {activeShopName}</div>
+          <div className="text-lg font-black text-stone-900">{t('createTransfer')}</div>
+          <div className="text-sm text-stone-500">{t('sourceBranch')}: {activeShopName}</div>
         </div>
 
         {otherShops.length ? (
@@ -279,45 +315,52 @@ export default function StockTransferManager({
               >
                 {otherShops.map((shop) => (
                   <option key={shop.id} value={shop.id}>
-                    {shop.name} ({shop.role})
+                    {shop.name} ({tRoot(`roles.${shop.role}`)})
                   </option>
                 ))}
               </select>
-              <Input placeholder="Transfer notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+              <Input placeholder={t('transferNotes')} value={notes} onChange={(event) => setNotes(event.target.value)} />
             </div>
 
             <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-              <div className="grid gap-3 md:grid-cols-4">
-                <select
-                  className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm"
-                  value={fromProductId}
-                  onChange={(event) => onChangeSourceProduct(event.target.value)}
-                >
-                  {sourceProducts.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="rounded-xl border border-stone-300 bg-white px-4 py-2.5 text-sm"
-                  value={toProductId}
-                  onChange={(event) => setToProductId(event.target.value)}
-                >
-                  {availableDestinationProducts.map((product) => (
-                    <option key={product.id} value={product.id}>
-                      {product.name}
-                    </option>
-                  ))}
-                </select>
-                <Input type="number" min={1} value={qty} onChange={(event) => setQty(event.target.value)} />
-                <Button type="button" variant="secondary" onClick={addLine}>Add line</Button>
-              </div>
-              {selectedSourceProduct ? (
-                <div className="mt-3 text-sm text-stone-600">
-                  Available in {activeShopName}: <span className="font-semibold text-stone-900">{selectedSourceProduct.stockQty}</span> unit(s)
+              <div className="grid gap-3 md:grid-cols-4 items-end">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5">
+                    {t('searchProduct') || 'امسح الباركود أو ابحث عن المنتج'}
+                  </label>
+                  <Input
+                    placeholder="امسح الباركود أو اكتب الكود..."
+                    value={scanQuery}
+                    onChange={(event) => setScanQuery(event.target.value)}
+                  />
                 </div>
-              ) : null}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-stone-500 mb-1.5">
+                    الكمية
+                  </label>
+                  <Input type="number" min={1} value={qty} onChange={(event) => setQty(event.target.value)} />
+                </div>
+                <Button type="button" variant="secondary" onClick={addLine}>{t('addTransferLine')}</Button>
+              </div>
+              {searchedProduct && (
+                <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/50 p-3 text-xs space-y-1">
+                  <div className="font-semibold text-blue-900">
+                    العنصر المحدد: {searchedProduct.name} {searchedProduct.sku ? `(SKU: ${searchedProduct.sku})` : ''}
+                  </div>
+                  <div className="text-stone-600">
+                    المخزون المتوفر بالفرع الحالي: <span className="font-bold text-stone-900">{searchedProduct.stockQty}</span>
+                  </div>
+                  {toProductId ? (
+                    <div className="text-emerald-700 font-semibold">
+                      سيتم تحويله إلى: {availableDestinationProducts.find(p => p.id === toProductId)?.name || ''}
+                    </div>
+                  ) : (
+                    <div className="text-amber-700 font-semibold">
+                      ⚠️ لا يوجد منتج مطابق بالفرع الآخر. سيتم إنشاء منتج جديد هناك تلقائياً عند الاستلام.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -327,35 +370,35 @@ export default function StockTransferManager({
                     <div>
                       <div className="font-semibold text-stone-900">{line.fromProductName}</div>
                       <div className="text-xs text-stone-500">
-                        {line.qty} unit(s) to {line.toProductName}
+                        {t('unitsTo', { qty: line.qty, product: line.toProductName })}
                       </div>
                     </div>
-                    <Button type="button" variant="ghost" onClick={() => removeLine(index)}>Remove</Button>
+                    <Button type="button" variant="ghost" onClick={() => removeLine(index)}>{t('removeTransferLine')}</Button>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-stone-500">No transfer lines added yet.</div>
+                <div className="text-sm text-stone-500">{t('noTransferLines')}</div>
               )}
             </div>
 
             {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-            {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+            {success ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div> : null}
 
             <Button onClick={createTransfer} disabled={!lines.length || loading}>
-              {loading ? 'Saving transfer...' : 'Save transfer draft'}
+              {loading ? t('savingTransfer') : t('saveTransferDraft')}
             </Button>
           </div>
         ) : (
           <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 px-4 py-5 text-sm text-stone-500">
-            You need access to more than one branch before stock transfers can be created.
+            {t('accessMultiBranchRequired')}
           </div>
         )}
       </Card>
 
       <Card>
         <div className="mb-4">
-          <div className="text-lg font-black text-stone-900">Transfer history</div>
-          <div className="text-sm text-stone-500">Only the active branch can send its own drafts or receive inbound transfers addressed to it.</div>
+          <div className="text-lg font-black text-stone-900">{t('transferHistory')}</div>
+          <div className="text-sm text-stone-500">{t('activeBranchRules')}</div>
         </div>
 
         <div className="space-y-4">
@@ -371,59 +414,67 @@ export default function StockTransferManager({
                     <div>
                       <div className="font-semibold text-stone-900">{transfer.transferNumber}</div>
                       <div className="text-sm text-stone-500">
-                        {transfer.fromShop.name} to {transfer.toShop.name}
+                        {transfer.fromShop.name} {t('toShop', { shop: transfer.toShop.name })}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Badge tone={stockTransferStatusTone(status)}>
-                          {getStockTransferStatusLabel(status)}
+                          {t('status_' + status)}
                         </Badge>
                         <Badge tone={isSourceBranch ? 'amber' : 'blue'}>
-                          {isSourceBranch ? 'Outgoing' : 'Incoming'}
+                          {isSourceBranch ? t('outgoing') : t('incoming')}
                         </Badge>
                       </div>
                     </div>
                     <div className="text-right text-sm text-stone-600">
-                      <div>Created {dateTime(transfer.createdAt)}</div>
-                      {transfer.sentAt ? <div>Sent {dateTime(transfer.sentAt)}</div> : null}
-                      {transfer.receivedAt ? <div>Received {dateTime(transfer.receivedAt)}</div> : null}
+                      <div>{t('createdWhen', { date: dateTime(transfer.createdAt) })}</div>
+                      {transfer.sentAt ? <div>{t('sentWhen', { date: dateTime(transfer.sentAt) })}</div> : null}
+                      {transfer.receivedAt ? <div>{t('receivedWhen', { date: dateTime(transfer.receivedAt) })}</div> : null}
                     </div>
                   </div>
 
-                  {transfer.notes ? <div className="mt-3 text-sm text-stone-600">Notes: {transfer.notes}</div> : null}
+                  {transfer.notes ? <div className="mt-3 text-sm text-stone-600">{t('notes')}: {transfer.notes}</div> : null}
 
                   <div className="mt-4 space-y-2 rounded-2xl bg-stone-50 p-4">
                     {transfer.items.map((item) => (
                       <div key={item.id} className="rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
                         <div className="font-semibold text-stone-900">{item.productNameSnapshot}</div>
                         <div className="text-xs text-stone-500">
-                          {item.qty} unit(s) to {item.destinationProductNameSnapshot}
+                          {t('unitsTo', { qty: item.qty, product: item.destinationProductNameSnapshot })}
                         </div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                   <div className="mt-4 flex flex-wrap gap-2 items-center">
                     {isSourceBranch && transfer.status === 'DRAFT' ? (
-                      <Button type="button" onClick={() => updateTransfer(transfer.id, 'SEND')} disabled={busyTransferId === transfer.id}>
-                        {busyTransferId === transfer.id ? 'Sending...' : 'Send transfer'}
-                      </Button>
+                      isAdmin ? (
+                        <Button type="button" onClick={() => updateTransfer(transfer.id, 'SEND')} disabled={busyTransferId === transfer.id}>
+                          {busyTransferId === transfer.id ? t('sending') : t('sendTransfer')}
+                        </Button>
+                      ) : (
+                        <Badge tone="amber">{t('pendingAdminApproval')}</Badge>
+                      )
                     ) : null}
                     {isSourceBranch && transfer.status === 'DRAFT' ? (
                       <Button type="button" variant="danger" onClick={() => updateTransfer(transfer.id, 'CANCEL')} disabled={busyTransferId === transfer.id}>
-                        Cancel transfer
+                        {t('cancelTransfer')}
                       </Button>
                     ) : null}
                     {isDestinationBranch && transfer.status === 'IN_TRANSIT' ? (
-                      <Button type="button" variant="secondary" onClick={() => updateTransfer(transfer.id, 'RECEIVE')} disabled={busyTransferId === transfer.id}>
-                        {busyTransferId === transfer.id ? 'Receiving...' : 'Confirm receipt'}
-                      </Button>
+                      isAdmin ? (
+                        <Button type="button" variant="secondary" onClick={() => updateTransfer(transfer.id, 'RECEIVE')} disabled={busyTransferId === transfer.id}>
+                          {busyTransferId === transfer.id ? t('receiving') : t('confirmReceipt')}
+                        </Button>
+                      ) : (
+                        <Badge tone="amber">{t('pendingAdminConfirmation')}</Badge>
+                      )
                     ) : null}
                   </div>
                 </div>
               );
             })
           ) : (
-            <div className="text-sm text-stone-500">No branch transfers recorded yet.</div>
+            <div className="text-sm text-stone-500">{t('noTransfersRecorded')}</div>
           )}
         </div>
       </Card>

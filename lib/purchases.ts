@@ -177,13 +177,30 @@ function serializeDate(value: Date | null | undefined) {
 
 export function serializeSupplierPayment<
   T extends {
+    id: string;
+    method: string;
+    referenceNumber: string | null;
     amount: DecimalLike;
     paidAt: Date;
     createdAt: Date;
+    createdByUser?: {
+      id: string;
+      name: string | null;
+      email: string;
+    } | null;
   }
 >(payment: T) {
   return {
-    ...payment,
+    id: payment.id,
+    method: payment.method,
+    referenceNumber: payment.referenceNumber ?? null,
+    createdByUser: payment.createdByUser
+      ? {
+          id: payment.createdByUser.id,
+          name: payment.createdByUser.name,
+          email: payment.createdByUser.email
+        }
+      : null,
     amount: serializeDecimal(payment.amount),
     paidAt: payment.paidAt.toISOString(),
     createdAt: payment.createdAt.toISOString()
@@ -228,9 +245,17 @@ export function serializeSupplierInvoice<
     updatedAt: Date;
     paymentStatus: string;
     payments?: Array<{
+      id: string;
+      method: string;
+      referenceNumber: string | null;
       amount: DecimalLike;
       paidAt: Date;
       createdAt: Date;
+      createdByUser?: {
+        id: string;
+        name: string | null;
+        email: string;
+      } | null;
     }>;
     payableEntry?: {
       amountDue: DecimalLike;
@@ -266,26 +291,66 @@ export function serializeSupplierInvoice<
 
 export function serializePurchaseReceiptItem<
   T extends {
+    id: string;
+    purchaseItemId: string;
+    productId: string;
+    qtyReceived: number;
     createdAt: Date;
+    product?: {
+      id: string;
+      name: string;
+    } | null;
   }
 >(item: T) {
   return {
-    ...item,
-    createdAt: item.createdAt.toISOString()
+    id: item.id,
+    purchaseItemId: item.purchaseItemId,
+    productId: item.productId,
+    qtyReceived: Number(item.qtyReceived),
+    createdAt: item.createdAt.toISOString(),
+    product: item.product
+      ? {
+          id: item.product.id,
+          name: item.product.name
+        }
+      : null
   };
 }
 
 export function serializePurchaseReceipt<
   T extends {
+    id: string;
+    notes?: string | null;
     receivedAt: Date;
     createdAt: Date;
+    receivedByUser?: {
+      id: string;
+      name: string | null;
+      email: string;
+    } | null;
     items?: Array<{
+      id: string;
+      purchaseItemId: string;
+      productId: string;
+      qtyReceived: number;
       createdAt: Date;
+      product?: {
+        id: string;
+        name: string;
+      } | null;
     }>;
   }
 >(receipt: T) {
   return {
-    ...receipt,
+    id: receipt.id,
+    notes: (receipt as { notes?: string | null }).notes ?? null,
+    receivedByUser: receipt.receivedByUser
+      ? {
+          id: receipt.receivedByUser.id,
+          name: receipt.receivedByUser.name,
+          email: receipt.receivedByUser.email
+        }
+      : null,
     receivedAt: receipt.receivedAt.toISOString(),
     createdAt: receipt.createdAt.toISOString(),
     items: receipt.items?.map(serializePurchaseReceiptItem)
@@ -294,19 +359,52 @@ export function serializePurchaseReceipt<
 
 export function serializePurchase<
   T extends {
+    id: string;
+    supplierId: string;
+    purchaseNumber: string;
+    status: string;
+    notes?: string | null;
     totalAmount: DecimalLike;
     createdAt: Date;
     updatedAt: Date;
     receivedAt: Date | null;
+    supplier?: {
+      name: string;
+    } | null;
     items: Array<{
+      id: string;
+      purchaseId: string;
+      productId: string;
+      unitOfMeasureId: string;
+      unitCode: string;
+      unitName: string;
+      productName: string;
+      qty: number;
+      ratioToBase: number;
+      receivedBaseQty: number;
       unitCost: DecimalLike;
       lineTotal: DecimalLike;
     }>;
     receipts?: Array<{
+      id: string;
+      notes?: string | null;
       receivedAt: Date;
       createdAt: Date;
+      receivedByUser?: {
+        id: string;
+        name: string | null;
+        email: string;
+      } | null;
       items?: Array<{
+        id: string;
+        purchaseItemId: string;
+        productId: string;
+        qtyReceived: number;
         createdAt: Date;
+        product?: {
+          id: string;
+          name: string;
+        } | null;
       }>;
     }>;
     supplierInvoice?: {
@@ -317,9 +415,17 @@ export function serializePurchase<
       updatedAt: Date;
       paymentStatus: string;
       payments?: Array<{
+        id: string;
+        method: string;
+        referenceNumber: string | null;
         amount: DecimalLike;
         paidAt: Date;
         createdAt: Date;
+        createdByUser?: {
+          id: string;
+          name: string | null;
+          email: string;
+        } | null;
       }>;
       payableEntry?: {
         amountDue: DecimalLike;
@@ -334,13 +440,27 @@ export function serializePurchase<
   }
 >(purchase: T) {
   return {
-    ...purchase,
+    id: purchase.id,
+    supplierId: purchase.supplierId,
+    purchaseNumber: purchase.purchaseNumber,
+    status: purchase.status,
+    notes: purchase.notes ?? null,
+    supplier: purchase.supplier ? { name: purchase.supplier.name } : null,
     totalAmount: serializeDecimal(purchase.totalAmount),
     createdAt: purchase.createdAt.toISOString(),
     updatedAt: purchase.updatedAt.toISOString(),
     receivedAt: serializeDate(purchase.receivedAt),
     items: purchase.items.map((item) => ({
-      ...item,
+      id: item.id,
+      purchaseId: item.purchaseId,
+      productId: item.productId,
+      unitOfMeasureId: item.unitOfMeasureId,
+      unitCode: item.unitCode,
+      unitName: item.unitName,
+      productName: item.productName,
+      qty: Number(item.qty),
+      ratioToBase: Number(item.ratioToBase),
+      receivedBaseQty: Number(item.receivedBaseQty),
       unitCost: serializeDecimal(item.unitCost),
       lineTotal: serializeDecimal(item.lineTotal)
     })),

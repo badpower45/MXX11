@@ -8,9 +8,12 @@ import { prisma } from '@/lib/prisma';
 import { supplierReturnDetailInclude } from '@/lib/supplier-return-operations';
 import { serializeSupplierInvoice } from '@/lib/purchases';
 import { serializeSupplierReturn } from '@/lib/supplier-returns';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function SuppliersPage() {
   const { shopId } = await requirePageRole('MANAGER');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
   const [suppliers, products, supplierReturns, settings] = await Promise.all([
     prisma.supplier.findMany({
       where: { shopId },
@@ -66,8 +69,8 @@ export default async function SuppliersPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Suppliers"
-        subtitle="Keep supplier contacts, invoices, outstanding balances, and payment history visible from one practical operations screen."
+        title={t('suppliers.title')}
+        subtitle={t('suppliers.subtitle')}
       />
       <SupplierReturnManager
         suppliers={suppliers.map((supplier) => ({
@@ -76,18 +79,21 @@ export default async function SuppliersPage() {
           isActive: supplier.isActive
         }))}
         products={products.map((product) => ({
-          ...product,
-          cost: product.cost.toString()
+          id: product.id,
+          name: product.name,
+          cost: product.cost.toString(),
+          stockQty: product.stockQty,
+          isActive: product.isActive
         }))}
         supplierReturns={supplierReturns.map((supplierReturn) => serializeSupplierReturn(supplierReturn) as unknown as SupplierReturnView)}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
       />
       <SupplierManager
         initialSuppliers={suppliers.map((supplier) => ({
           ...supplier,
           invoices: supplier.invoices.map(serializeSupplierInvoice)
         })) as unknown as SupplierView[]}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
       />
     </div>
   );

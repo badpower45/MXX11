@@ -7,8 +7,12 @@ import {
   serializeCashSession,
   serializeRegisterSessionSummary
 } from '@/lib/serializers/register';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function RegisterClosePage() {
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
+
   const { shopId, userId, role } = await requirePageRole('CASHIER');
   const [settings, openSessions] = await Promise.all([
     prisma.shopSetting.findUnique({ where: { shopId } }),
@@ -37,12 +41,12 @@ export default async function RegisterClosePage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Close register"
-        subtitle="Count the drawer, compare actual cash with expected cash, and close open register sessions with a full audit trail."
+        title={t('register.close.title')}
+        subtitle={t('register.close.subtitle')}
       />
       <RegisterCloseManager
         initialSessions={sessions}
-        currencySymbol={settings?.currencySymbol ?? 'â‚±'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
       />
     </div>
   );

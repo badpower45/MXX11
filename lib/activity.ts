@@ -1,7 +1,10 @@
+import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 
+type DbClient = Prisma.TransactionClient | typeof prisma;
+
 type ActivityInput = {
-  tx: Prisma.TransactionClient;
+  tx?: DbClient;
   shopId: string;
   userId?: string | null;
   action: string;
@@ -21,7 +24,8 @@ export async function logActivity({
   description,
   metadata
 }: ActivityInput) {
-  return tx.activityLog.create({
+  const client = tx ?? prisma;
+  return client.activityLog.create({
     data: {
       shopId,
       userId: userId ?? null,

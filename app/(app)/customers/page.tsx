@@ -5,9 +5,13 @@ import { requirePageRole } from '@/lib/authz';
 import { customerDetailInclude } from '@/lib/customer-operations';
 import { serializeCustomer } from '@/lib/customers';
 import { prisma } from '@/lib/prisma';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function CustomersPage() {
   const { shopId } = await requirePageRole('MANAGER');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
+
   const [customers, settings] = await Promise.all([
     prisma.customer.findMany({
       where: { shopId },
@@ -20,12 +24,12 @@ export default async function CustomersPage() {
   return (
     <div className="space-y-6">
       <AppHeader
-        title="Customers"
-        subtitle="Manage customer records, purchase history, loyalty balances, and open receivables from one operational workspace."
+        title={t('customers.title')}
+        subtitle={t('customers.subtitle')}
       />
       <CustomerDirectoryManager
         customers={customers.map((customer) => serializeCustomer(customer)) as unknown as CustomerRecord[]}
-        currencySymbol={settings?.currencySymbol ?? 'PHP '}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
       />
     </div>
   );

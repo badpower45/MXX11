@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState, useMemo } from 'react';
+import { useTranslations } from '@/lib/i18n/client';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -60,6 +61,18 @@ export default function SupplierManager({
   initialSuppliers: Supplier[];
   currencySymbol: string;
 }) {
+  const t = useTranslations('suppliers');
+
+  const getLocalizedPayableStatus = (status: string) => {
+    switch (status) {
+      case 'UNPAID': return t('statusUnpaid');
+      case 'PARTIALLY_PAID': return t('statusPartiallyPaid');
+      case 'PAID': return t('statusPaid');
+      case 'OVERDUE': return t('statusOverdue');
+      default: return status.replaceAll('_', ' ');
+    }
+  };
+
   const [suppliers, setSuppliers] = useState(initialSuppliers);
   const [form, setForm] = useState({
     name: '',
@@ -117,9 +130,9 @@ export default function SupplierManager({
       body: JSON.stringify(form)
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to save supplier.' }));
+    const data = await response.json().catch(() => ({ error: t('failedCreate') }));
     if (!response.ok) {
-      setError(data.error ?? 'Failed to save supplier.');
+      setError(data.error ?? t('failedCreate'));
       return;
     }
 
@@ -132,11 +145,15 @@ export default function SupplierManager({
       ...current
     ]);
     setForm({ name: '', contactName: '', email: '', phone: '', address: '', notes: '' });
-    setSuccess('Supplier created successfully.');
+    setSuccess(t('supplierCreated'));
   }
 
   async function toggleSupplier(supplier: Supplier) {
-    const confirmed = window.confirm(`${supplier.isActive ? 'Archive' : 'Restore'} ${supplier.name}?`);
+    const confirmed = window.confirm(
+      supplier.isActive
+        ? t('archiveConfirm', { name: supplier.name })
+        : t('restoreConfirm', { name: supplier.name })
+    );
     if (!confirmed) {
       return;
     }
@@ -149,7 +166,7 @@ export default function SupplierManager({
 
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.supplier) {
-      setError(data?.error ?? 'Unable to update supplier.');
+      setError(data?.error ?? t('unableUpdate'));
       return;
     }
 
@@ -170,29 +187,29 @@ export default function SupplierManager({
   return (
     <div className="grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
       <Card>
-        <h2 id="new-supplier" className="text-xl font-black text-stone-900">Add supplier</h2>
+        <h2 id="new-supplier" className="text-xl font-black text-stone-900">{t('addSupplier')}</h2>
         <form onSubmit={saveSupplier} className="mt-5 grid gap-4">
-          <Input placeholder="Supplier name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
-          <Input placeholder="Contact name" value={form.contactName} onChange={(event) => setForm((current) => ({ ...current, contactName: event.target.value }))} />
-          <Input placeholder="Email" value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
-          <Input placeholder="Phone" value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
-          <Input placeholder="Address" value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
+          <Input placeholder={t('supplierName')} value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} required />
+          <Input placeholder={t('contactName')} value={form.contactName} onChange={(event) => setForm((current) => ({ ...current, contactName: event.target.value }))} />
+          <Input placeholder={t('email')} value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} />
+          <Input placeholder={t('phone')} value={form.phone} onChange={(event) => setForm((current) => ({ ...current, phone: event.target.value }))} />
+          <Input placeholder={t('address')} value={form.address} onChange={(event) => setForm((current) => ({ ...current, address: event.target.value }))} />
           <textarea
-            className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
-            placeholder="Notes"
+            className="min-h-24 w-full rounded-2xl border border-stone-200 bg-white/88 px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 hover:border-stone-300 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-500/10"
+            placeholder={t('notes')}
             value={form.notes}
             onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
           />
 
           {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {success ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
+          {success ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">{success}</div> : null}
 
-          <Button type="submit">Save supplier</Button>
+          <Button type="submit">{t('saveSupplier')}</Button>
         </form>
       </Card>
 
       <Card>
-        <h2 className="text-xl font-black text-stone-900">Supplier list</h2>
+        <h2 className="text-xl font-black text-stone-900">{t('supplierList')}</h2>
         <div className="mt-4 space-y-4">
           {supplierCards.length ? (
             supplierCards.map((supplier) => (
@@ -202,27 +219,27 @@ export default function SupplierManager({
                     <div className="font-semibold text-stone-900">{supplier.name}</div>
                     <div className="mt-1 flex flex-wrap gap-2">
                       <Badge tone={supplier.isActive ? 'emerald' : 'stone'}>
-                        {supplier.isActive ? 'Active' : 'Archived'}
+                        {supplier.isActive ? t('active') : t('archived')}
                       </Badge>
-                      <Badge tone="blue">{supplier._count?.purchases ?? 0} purchase(s)</Badge>
-                      <Badge tone="amber">{supplier._count?.invoices ?? 0} invoice(s)</Badge>
+                      <Badge tone="blue">{t('purchasesCount', { count: supplier._count?.purchases ?? 0 })}</Badge>
+                      <Badge tone="amber">{t('invoicesCount', { count: supplier._count?.invoices ?? 0 })}</Badge>
                       {supplier.overdueCount > 0 ? (
-                        <Badge tone="red">{supplier.overdueCount} overdue</Badge>
+                        <Badge tone="red">{supplier.overdueCount} {t('overdue')}</Badge>
                       ) : null}
                     </div>
                     <div className="mt-2 text-sm text-stone-500">
-                      {supplier.contactName || 'No contact'} / {supplier.phone || 'No phone'}
+                      {supplier.contactName || t('noContact')} / {supplier.phone || t('noPhone')}
                     </div>
-                    <div className="text-xs text-stone-500">{supplier.email || 'No email on file'}</div>
+                    <div className="text-xs text-stone-500">{supplier.email || t('noEmail')}</div>
                     {supplier.address ? <div className="mt-1 text-xs text-stone-500">{supplier.address}</div> : null}
                   </div>
-                    <div className="text-right">
-                      <div className="text-xs text-stone-500">Outstanding payable</div>
+                  <div className="text-right">
+                    <div className="text-xs text-stone-500">{t('outstandingPayable')}</div>
                     <div className="text-2xl font-black text-stone-900">{money(supplier.outstanding, currencySymbol)}</div>
-                    <div className="text-xs text-stone-500">{supplier.openInvoiceCount} open invoice(s)</div>
+                    <div className="text-xs text-stone-500">{t('openInvoicesCount', { count: supplier.openInvoiceCount })}</div>
                     <div className="mt-3">
                       <Button type="button" variant="secondary" onClick={() => toggleSupplier(supplier)}>
-                        {supplier.isActive ? 'Archive' : 'Restore'}
+                        {supplier.isActive ? t('archive') : t('restore')}
                       </Button>
                     </div>
                   </div>
@@ -230,7 +247,7 @@ export default function SupplierManager({
 
                 <div className="mt-4 grid gap-4 xl:grid-cols-2">
                   <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                    <div className="text-sm font-semibold text-stone-900">Open payables</div>
+                    <div className="text-sm font-semibold text-stone-900">{t('openPayables')}</div>
                     <div className="mt-3 space-y-3">
                       {supplier.invoices.filter((invoice) => invoice.payableEntry && invoice.payableEntry.status !== 'PAID').length ? (
                         supplier.invoices
@@ -242,26 +259,26 @@ export default function SupplierManager({
                                 <div>
                                   <div className="font-semibold text-stone-900">{invoice.invoiceNumber}</div>
                                   <div className="text-xs text-stone-500">
-                                    {invoice.purchase.purchaseNumber} / Due {shortDate(invoice.dueDate)}
+                                    {invoice.purchase.purchaseNumber} / {t('due', { date: shortDate(invoice.dueDate) })}
                                   </div>
                                 </div>
                                 <Badge tone={payableStatusTone(invoice.payableEntry?.status ?? invoice.paymentStatus)}>
-                                  {getPayableStatusLabel(invoice.payableEntry?.status ?? invoice.paymentStatus)}
+                                  {getLocalizedPayableStatus(invoice.payableEntry?.status ?? invoice.paymentStatus)}
                                 </Badge>
                               </div>
                               <div className="mt-2 text-sm text-stone-600">
-                                Balance {money(invoice.payableEntry?.balance ?? '0', currencySymbol)}
+                                {t('balance', { amount: money(invoice.payableEntry?.balance ?? '0', currencySymbol) })}
                               </div>
                             </div>
                           ))
                       ) : (
-                        <div className="text-sm text-stone-500">No outstanding supplier payables right now.</div>
+                        <div className="text-sm text-stone-500">{t('noOpenPayables')}</div>
                       )}
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-                    <div className="text-sm font-semibold text-stone-900">Recent payments</div>
+                    <div className="text-sm font-semibold text-stone-900">{t('recentPayments')}</div>
                     <div className="mt-3 space-y-3">
                       {supplier.recentPayments.length ? (
                         supplier.recentPayments.map((payment) => (
@@ -276,26 +293,26 @@ export default function SupplierManager({
                                 </div>
                               </div>
                               <div className="text-xs text-stone-500">
-                                {payment.referenceNumber ? `Ref ${payment.referenceNumber}` : 'No reference'}
+                                {payment.referenceNumber ? t('ref', { num: payment.referenceNumber }) : t('noRef')}
                               </div>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-stone-500">No supplier payments recorded yet.</div>
+                        <div className="text-sm text-stone-500">{t('noRecentPayments')}</div>
                       )}
                     </div>
                   </div>
                 </div>
 
                 {supplier.notes ? (
-                  <div className="mt-4 text-sm text-stone-500">Notes: {supplier.notes}</div>
+                  <div className="mt-4 text-sm text-stone-500">{t('notes')}: {supplier.notes}</div>
                 ) : null}
               </div>
             ))
           ) : (
             <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-5 text-sm text-stone-500">
-              No suppliers yet. Add one to start recording purchases against a real vendor.
+              {t('noSuppliers')}
             </div>
           )}
         </div>

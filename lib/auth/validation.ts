@@ -18,7 +18,7 @@ import {
   CUSTOMER_TYPE_OPTIONS
 } from '@/lib/customers';
 
-const shopRoleSchema = z.enum(['ADMIN', 'MANAGER', 'CASHIER']);
+const shopRoleSchema = z.enum(['ADMIN', 'MANAGER', 'CASHIER', 'STOCK_COUNTER']);
 const permissionSchema = z.enum(PERMISSION_KEYS);
 const optionalText = () => z.string().trim().optional().nullable();
 const shopTypeSchema = z.enum(SHOP_TYPE_OPTIONS.map((option) => option.value) as [string, ...string[]]);
@@ -42,6 +42,7 @@ const productVariantSchema = z.object({
   barcode: z.string().trim().max(60).optional().nullable(),
   priceOverride: z.coerce.number().min(0).optional().nullable(),
   costOverride: z.coerce.number().min(0).optional().nullable(),
+  stockQty: z.coerce.number().int().min(0).default(0),
   isActive: z.coerce.boolean().default(true)
 }).refine(
   (input) => Boolean(input.color || input.size || input.flavor || input.model || input.sku || input.barcode),
@@ -88,7 +89,7 @@ export const onboardSchema = z.object({
   lowStockThreshold: z.coerce.number().int().min(0).max(9999),
   defaultPaymentMethods: z.array(paymentMethodSchema).min(1).default(DEFAULT_PAYMENT_METHODS),
   openingFloatRequired: z.coerce.boolean().default(true),
-  openingFloatAmount: z.coerce.number().min(0).max(999999.99).default(0),
+  openingFloatAmount: z.coerce.number().min(0).max(999999999.99).default(0),
   printerName: optionalText(),
   printerConnection: z.enum(PRINTER_CONNECTION_OPTIONS).default('MANUAL'),
   barcodeScannerNotes: z.string().trim().max(500).optional().nullable(),
@@ -135,6 +136,21 @@ export const productSchema = z.object({
   trackBatches: z.coerce.boolean().default(false),
   trackExpiry: z.coerce.boolean().default(false),
   changeNote: z.string().trim().max(300).optional().nullable(),
+  productType: z.enum(['MOTORCYCLE', 'SPARE_PART']).default('MOTORCYCLE'),
+  brand: optionalText(),
+  supplierPrice: z.coerce.number().min(0).optional().nullable(),
+  dealerCode: optionalText(),
+  assemblyCost: z.coerce.number().min(0).optional().nullable(),
+  externalTransportCost: z.coerce.number().min(0).optional().nullable(),
+  internalTransportCost: z.coerce.number().min(0).optional().nullable(),
+  maintenanceCost: z.coerce.number().min(0).optional().nullable(),
+  otherCosts: z.coerce.number().min(0).optional().nullable(),
+  condition: z.enum(['NEW', 'USED']).default('NEW'),
+  color: optionalText(),
+  motorNumber: optionalText(),
+  chassisNumber: optionalText(),
+  chassisPhotoUrl: optionalText(),
+  motorPhotoUrl: optionalText(),
   uomConversions: z.array(z.object({
     unitOfMeasureId: z.string().trim().min(1),
     ratioToBase: z.coerce.number().int().positive('Pack conversion must be greater than zero.')
@@ -165,16 +181,23 @@ export const productBatchSchema = z.object({
 export const stockCountCreateSchema = z.object({
   title: z.string().trim().max(120).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable(),
-  isBlind: z.coerce.boolean().default(false)
+  isBlind: z.coerce.boolean().default(false),
+  countType: z.enum(['ALL', 'MOTORCYCLES', 'SPARE_PARTS']).optional().default('ALL')
 });
 
 export const stockCountUpdateSchema = z.object({
-  action: z.enum(['SAVE', 'SUBMIT', 'APPROVE', 'POST', 'CANCEL']),
+  action: z.enum(['SAVE', 'SUBMIT', 'APPROVE', 'POST', 'CANCEL', 'SUBMIT_USER_COUNT']),
   notes: z.string().trim().max(500).optional().nullable(),
   items: z.array(z.object({
     id: z.string().trim().min(1),
     actualQty: z.coerce.number().int().min(0).nullable(),
     note: z.string().trim().max(300).optional().nullable()
+  })).optional().default([]),
+  assigneeUserIds: z.array(z.string().trim().min(1)).optional(),
+  userEntries: z.array(z.object({
+    productId: z.string().trim().min(1),
+    assigneeId: z.string().trim().min(1), // Can be UserShop ID or GuestStaff ID (which matches the select box IDs)
+    actualQty: z.coerce.number().int().min(0)
   })).optional().default([])
 });
 
@@ -228,12 +251,12 @@ export const supplierReturnSchema = z.object({
   notes: z.string().trim().max(500).optional().nullable(),
   creditMemoNumber: z.string().trim().max(80).optional().nullable(),
   creditMemoDate: z.string().trim().optional().nullable().or(z.literal('')),
-  creditAmount: z.coerce.number().min(0).max(999999.99).default(0),
+  creditAmount: z.coerce.number().min(0).max(999999999.99).default(0),
   creditMemoStatus: z.enum(SUPPLIER_CREDIT_MEMO_STATUS_OPTIONS).default('PENDING'),
   items: z.array(z.object({
     productId: z.string().trim().min(1),
     qty: z.coerce.number().int().positive('Return quantity must be greater than zero.'),
-    unitCost: z.coerce.number().min(0).max(999999.99),
+    unitCost: z.coerce.number().min(0).max(999999999.99),
     reason: z.enum(SUPPLIER_RETURN_REASON_OPTIONS),
     disposition: z.enum(SUPPLIER_RETURN_DISPOSITION_OPTIONS)
   })).min(1, 'Add at least one return line.')
@@ -251,15 +274,17 @@ export const supplierReturnCreditSchema = z.object({
   action: z.literal('UPDATE_CREDIT'),
   creditMemoNumber: z.string().trim().max(80).optional().nullable(),
   creditMemoDate: z.string().trim().optional().nullable().or(z.literal('')),
-  creditAmount: z.coerce.number().min(0).max(999999.99).default(0),
+  creditAmount: z.coerce.number().min(0).max(999999999.99).default(0),
   creditMemoStatus: z.enum(SUPPLIER_CREDIT_MEMO_STATUS_OPTIONS).default('PENDING'),
   notes: z.string().trim().max(500).optional().nullable()
 });
 
 export const salePaymentSchema = z.object({
   method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999.99),
-  referenceNumber: z.string().trim().max(80).optional().nullable()
+  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999999.99),
+  referenceNumber: z.string().trim().max(80).optional().nullable(),
+  pullAmount: z.coerce.number().min(0).optional().nullable(),
+  adminFees: z.coerce.number().min(0).optional().nullable()
 });
 
 export const saleSchema = z.object({
@@ -269,11 +294,20 @@ export const saleSchema = z.object({
   customerId: z.string().trim().optional().nullable(),
   customerName: z.string().trim().max(120).optional().nullable(),
   customerPhone: z.string().trim().max(40).optional().nullable(),
+  customerNationalId: optionalText(),
+  customerNationalIdPhoto: optionalText(),
+  motorcycleColor: optionalText(),
+  motorcycleMotorNumber: optionalText(),
+  motorcycleChassisNumber: optionalText(),
+  motorcycleChassisPhoto: optionalText(),
+  motorcycleMotorPhoto: optionalText(),
   loyaltyPointsToRedeem: z.coerce.number().int().min(0).max(999999).default(0),
   isCreditSale: z.coerce.boolean().default(false),
   creditDueDate: z.string().trim().optional().nullable().or(z.literal('')),
   discountAmount: z.coerce.number().min(0).default(0),
   notes: z.string().trim().max(300).optional().nullable(),
+  installmentCashbackAmount: z.coerce.number().min(0).optional().default(0),
+  salesmanId: z.string().trim().optional().nullable(),
   payments: z.array(salePaymentSchema).default([]),
   items: z.array(z.object({
     productId: z.string().trim().min(1),
@@ -325,7 +359,8 @@ const approvalSchema = z.object({
 const saleAdjustmentReturnItemSchema = z.object({
   saleItemId: z.string().trim().min(1),
   qty: z.coerce.number().int().positive(),
-  disposition: z.enum(['RESTOCK', 'DAMAGED'])
+  disposition: z.enum(['RESTOCK', 'DAMAGED']),
+  newCost: z.coerce.number().optional().nullable()
 });
 
 const saleAdjustmentReplacementItemSchema = z.object({
@@ -367,7 +402,7 @@ export const parkedSaleCreateSchema = z.object({
 export const receivablePaymentSchema = z.object({
   action: z.literal('RECORD_PAYMENT'),
   customerCreditLedgerId: z.string().trim().min(1),
-  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999.99),
+  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999999.99),
   method: z.enum(PAYMENT_METHODS),
   referenceNumber: z.string().trim().max(80).optional().nullable(),
   paidAt: z.string().trim().min(1, 'Payment date is required.')
@@ -387,10 +422,10 @@ export const purchaseSchema = z.object({
 
 export const stockTransferSchema = z.object({
   toShopId: z.string().trim().min(1, 'Select a destination branch.'),
-  notes: z.string().trim().max(500).optional().nullable(),
+  notes: optionalText(),
   items: z.array(z.object({
     fromProductId: z.string().trim().min(1),
-    toProductId: z.string().trim().min(1),
+    toProductId: z.string().trim().optional().nullable().or(z.literal('')),
     qty: z.coerce.number().int().positive('Transfer quantity must be greater than zero.')
   })).min(1, 'Add at least one transfer line.')
 });
@@ -420,23 +455,23 @@ export const supplierInvoiceSchema = z.object({
   invoiceNumber: z.string().trim().min(1, 'Invoice number is required.').max(80),
   invoiceDate: z.string().trim().min(1, 'Invoice date is required.'),
   dueDate: z.string().trim().min(1, 'Due date is required.'),
-  totalAmount: z.coerce.number().positive('Invoice total must be greater than zero.').max(999999.99),
+  totalAmount: z.coerce.number().positive('Invoice total must be greater than zero.').max(999999999.99),
   notes: z.string().trim().max(500).optional().nullable()
 });
 
 export const supplierPaymentSchema = z.object({
   action: z.literal('RECORD_PAYMENT'),
   method: z.enum(PAYMENT_METHODS),
-  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999.99),
+  amount: z.coerce.number().positive('Payment amount must be greater than zero.').max(999999999.99),
   referenceNumber: z.string().trim().max(80).optional().nullable(),
   paidAt: z.string().trim().min(1, 'Payment date is required.')
 });
 
 export const settingSchema = z.object({
   shopName: z.string().trim().min(2).max(120),
-  legalBusinessName: z.string().trim().min(2).max(160),
+  legalBusinessName: z.string().trim().max(160).optional().nullable(),
   phone: z.string().trim().max(40).optional().nullable(),
-  email: z.string().trim().email().optional().nullable().or(z.literal('')),
+  email: z.string().trim().email().or(z.string().trim().length(0)).optional().nullable(),
   address: z.string().trim().max(255).optional().nullable(),
   taxId: z.string().trim().max(60).optional().nullable(),
   timezone: z.string().trim().min(2).max(80),
@@ -460,7 +495,7 @@ export const settingSchema = z.object({
   offlineStockStrict: z.coerce.boolean().default(false),
   offlineStockMaxAgeMinutes: z.coerce.number().int().min(5).max(1440).default(240),
   openingFloatRequired: z.coerce.boolean(),
-  openingFloatAmount: z.coerce.number().min(0).max(999999.99),
+  openingFloatAmount: z.coerce.number().min(0).max(999999999.99),
   salePrefix: z.string().trim().min(2).max(10).regex(/^[A-Za-z0-9]+$/, 'Use letters or numbers only for the sale prefix'),
   receiptPrefix: z.string().trim().min(2).max(10).regex(/^[A-Za-z0-9]+$/, 'Use letters or numbers only for the receipt prefix'),
   purchasePrefix: z.string().trim().min(2).max(10).regex(/^[A-Za-z0-9]+$/, 'Use letters or numbers only for the purchase prefix')
@@ -471,14 +506,18 @@ export const staffCreateSchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
   password: z.string().min(8).max(72),
   role: shopRoleSchema,
-  shopId: z.string().trim().min(1)
+  shopId: z.string().trim().min(1),
+  baseSalary: z.coerce.number().min(0).optional().nullable(),
+  commissionRate: z.coerce.number().min(0).max(100).optional().default(0)
 });
 
 export const staffUpdateSchema = z.object({
   role: shopRoleSchema,
   shopId: z.string().trim().min(1),
   isActive: z.coerce.boolean(),
-  customPermissions: z.array(permissionSchema).optional().default([])
+  customPermissions: z.array(permissionSchema).optional().default([]),
+  baseSalary: z.coerce.number().min(0).optional().nullable(),
+  commissionRate: z.coerce.number().min(0).max(100).optional().default(0)
 });
 
 export const staffPinSchema = z.object({
@@ -507,20 +546,24 @@ export const passwordResetConsumeSchema = z.object({
 });
 
 export const cashSessionOpenSchema = z.object({
-  openingFloat: z.coerce.number().min(0, 'Opening float must be zero or greater.').max(999999.99),
+  openingFloat: z.coerce.number().min(0, 'Opening float must be zero or greater.').max(999999999.99),
   notes: z.string().trim().max(500).optional().nullable()
 });
 
 export const cashSessionCloseSchema = z.object({
-  closingActual: z.coerce.number().min(0, 'Actual counted cash must be zero or greater.').max(999999.99),
+  closingActual: z.coerce.number().min(0, 'Actual counted cash must be zero or greater.').max(999999999.99).optional(),
+  closingActualCash: z.coerce.number().min(0).optional().nullable(),
+  closingActualInstaPay: z.coerce.number().min(0).optional().nullable(),
+  closingActualWallet: z.coerce.number().min(0).optional().nullable(),
   denominationBreakdown: z.record(z.string(), z.coerce.number().int().min(0).max(9999)).optional().nullable(),
   notes: z.string().trim().max(500).optional().nullable()
 });
 
 export const cashMovementSchema = z.object({
   type: z.enum(['PAYOUT', 'CASH_DROP', 'PETTY_CASH', 'MANUAL_CORRECTION']),
-  amount: z.coerce.number().positive('Cash movement amount must be greater than zero.').max(999999.99),
-  note: z.string().trim().min(3, 'Add a short note for the cash movement.').max(300)
+  amount: z.coerce.number().positive('Cash movement amount must be greater than zero.').max(999999999.99),
+  note: z.string().trim().min(3, 'Add a short note for the cash movement.').max(300),
+  drawer: z.enum(['CASH', 'INSTAPAY', 'WALLET', 'VISA']).default('CASH')
 });
 
 export const cashSessionReviewSchema = z.object({

@@ -13,6 +13,7 @@ import {
   type PaymentMethod,
   requiresReferenceNumber
 } from '@/lib/payments';
+import { useTranslations } from '@/lib/i18n/client';
 
 type SaleItem = {
   id: string;
@@ -25,6 +26,9 @@ type SaleItem = {
   refundedQty: number;
   refundableQty: number;
   refundableAmount: string;
+  productType?: string;
+  condition?: string;
+  cost?: string;
 };
 
 type SaleDetail = {
@@ -64,6 +68,7 @@ type PaymentLine = {
 type ReturnLineState = {
   qty: number;
   disposition: 'RESTOCK' | 'DAMAGED';
+  newCost?: string;
 };
 
 type ReplacementLineState = {
@@ -75,7 +80,7 @@ type ReplacementLineState = {
 function createPaymentLine(amount = ''): PaymentLine {
   return {
     id: crypto.randomUUID(),
-    method: 'Cash',
+    method: 'كاش',
     amount,
     referenceNumber: ''
   };
@@ -102,6 +107,7 @@ export default function SaleAdjustmentManager({
   currentUserEmail: string;
 }) {
   const router = useRouter();
+  const t = useTranslations('adjustmentManager');
   const [workflowType, setWorkflowType] = useState<'REFUND' | 'EXCHANGE'>('REFUND');
   const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
@@ -115,7 +121,8 @@ export default function SaleAdjustmentManager({
           item.id,
           {
             qty: 0,
-            disposition: 'RESTOCK'
+            disposition: 'RESTOCK',
+            newCost: item.cost ?? '0.00'
           }
         ])
       )
@@ -155,7 +162,8 @@ export default function SaleAdjustmentManager({
             productName: item.productName,
             qty,
             disposition: state?.disposition ?? 'RESTOCK',
-            lineCredit: roundCurrency(lineCredit)
+            lineCredit: roundCurrency(lineCredit),
+            newCost: state?.newCost ? toNumber(state.newCost) : undefined
           };
         })
         .filter(Boolean) as Array<{
@@ -164,6 +172,7 @@ export default function SaleAdjustmentManager({
         qty: number;
         disposition: 'RESTOCK' | 'DAMAGED';
         lineCredit: number;
+        newCost?: number;
       }>,
     [returnLines, sale.items]
   );
@@ -229,31 +238,31 @@ export default function SaleAdjustmentManager({
   }
 
   function validateBeforeSubmit() {
-    if (!reason.trim()) return 'Refund reason is required.';
-    if (!approverEmail.trim() || !approverPassword.trim()) return 'Manager or admin approval is required.';
-    if (mode === 'void' && !sale.canVoid) return 'This sale can no longer be voided.';
-    if (mode === 'refund' && !sale.canRefund) return 'This sale can no longer be adjusted.';
-    if (mode === 'refund' && !selectedReturns.length) return 'Select at least one returned item.';
-    if (workflowType === 'EXCHANGE' && !selectedReplacementLines.length) return 'Add at least one replacement item for the exchange.';
+    if (!reason.trim()) return t('errors.reasonRequired');
+    if (!approverEmail.trim() || !approverPassword.trim()) return t('errors.approvalRequired');
+    if (mode === 'void' && !sale.canVoid) return t('errors.cannotVoid');
+    if (mode === 'refund' && !sale.canRefund) return t('errors.cannotAdjust');
+    if (mode === 'refund' && !selectedReturns.length) return t('errors.selectReturnItem');
+    if (workflowType === 'EXCHANGE' && !selectedReplacementLines.length) return t('errors.addReplacementItem');
     if (refundDue > 0) {
-      if (!normalizedRefundPayments.length) return 'Add at least one refund payment line.';
+      if (!normalizedRefundPayments.length) return t('errors.addRefundPaymentLine');
       const refundTotal = roundCurrency(normalizedRefundPayments.reduce((sum, payment) => sum + payment.amount, 0));
-      if (refundTotal !== refundDue) return 'Refund payment lines must match the refund total exactly.';
+      if (refundTotal !== refundDue) return t('errors.refundTotalMismatch');
       for (const payment of normalizedRefundPayments) {
         if (requiresReferenceNumber(payment.method) && !payment.referenceNumber) {
-          return `${payment.method} refund payments require a reference number.`;
+          return t('errors.refNumRequired', { method: payment.method });
         }
       }
     }
     if (exchangeDue > 0) {
-      if (!normalizedExchangePayments.length) return 'Add payment lines for the exchange difference.';
-      if (exchangeSummary.totalPaid < exchangeDue) return 'Exchange payments must cover the remaining balance.';
+      if (!normalizedExchangePayments.length) return t('errors.exchangePaymentDiff');
+      if (exchangeSummary.totalPaid < exchangeDue) return t('errors.exchangeCoverBalance');
       if (!exchangeSummary.hasCashPayment && exchangeSummary.totalPaid !== exchangeDue) {
-        return 'Non-cash exchange payments must match the balance exactly.';
+        return t('errors.exchangeExactBalance');
       }
       for (const payment of normalizedExchangePayments) {
         if (requiresReferenceNumber(payment.method) && !payment.referenceNumber) {
-          return `${payment.method} exchange payments require a reference number.`;
+          return t('errors.refNumRequiredExchange', { method: payment.method });
         }
       }
     }
@@ -289,7 +298,8 @@ export default function SaleAdjustmentManager({
             items: selectedReturns.map((item) => ({
               saleItemId: item.saleItemId,
               qty: item.qty,
-              disposition: item.disposition
+              disposition: item.disposition,
+              newCost: item.newCost
             })),
             replacementItems:
               workflowType === 'EXCHANGE'
@@ -308,17 +318,17 @@ export default function SaleAdjustmentManager({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await response.json().catch(() => ({ error: 'Unable to complete the adjustment.' }));
+      const data = await response.json().catch(() => ({ error: t('errors.unableToComplete') }));
       setLoading(false);
       if (!response.ok || !data?.adjustment?.id) {
-        setError(data?.error ?? 'Unable to complete the adjustment.');
+        setError(data?.error ?? t('errors.unableToComplete'));
         return;
       }
       router.push(`/print/refund/${data.adjustment.id}?autoprint=1`);
       router.refresh();
     } catch {
       setLoading(false);
-      setError('Unable to complete the adjustment.');
+      setError(t('errors.unableToComplete'));
     }
   }
 
@@ -328,20 +338,20 @@ export default function SaleAdjustmentManager({
         <Card className="space-y-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-700">
-                {mode === 'void' ? 'Void sale' : 'Refund and exchange'}
+              <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">
+                {mode === 'void' ? t('voidSale') : t('refundAndExchange')}
               </div>
               <h2 className="mt-2 text-2xl font-black text-stone-950">
                 {sale.saleNumber} / {sale.receiptNumber}
               </h2>
               <p className="mt-2 text-sm text-stone-500">
-                Customer: <span className="font-semibold text-stone-700">{sale.customerName ?? 'Walk-in customer'}</span>
+                {t('customerLabel')} <span className="font-semibold text-stone-700">{sale.customerName ?? t('walkInCustomer')}</span>
                 {' / '}
-                Cashier: <span className="font-semibold text-stone-700">{sale.cashierName ?? 'Cashier'}</span>
+                {t('cashierLabel')} <span className="font-semibold text-stone-700">{sale.cashierName ?? t('cashierFallback')}</span>
               </p>
             </div>
             <div className="rounded-[22px] border border-stone-200 bg-stone-50 px-4 py-3 text-right">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Sale total</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">{t('saleTotal')}</div>
               <div className="mt-1 text-2xl font-black text-stone-950">{money(sale.totalAmount, currencySymbol)}</div>
               <div className="mt-1 text-xs text-stone-500">{sale.paymentMethod}</div>
             </div>
@@ -354,14 +364,14 @@ export default function SaleAdjustmentManager({
                 variant={workflowType === 'REFUND' ? 'primary' : 'secondary'}
                 onClick={() => setWorkflowType('REFUND')}
               >
-                Refund
+                {t('refundBtn')}
               </Button>
               <Button
                 type="button"
                 variant={workflowType === 'EXCHANGE' ? 'primary' : 'secondary'}
                 onClick={() => setWorkflowType('EXCHANGE')}
               >
-                Exchange
+                {t('exchangeBtn')}
               </Button>
               <Button
                 type="button"
@@ -380,7 +390,7 @@ export default function SaleAdjustmentManager({
                   )
                 }
               >
-                Select all refundable items
+                {t('selectAllBtn')}
               </Button>
             </div>
           ) : null}
@@ -394,60 +404,85 @@ export default function SaleAdjustmentManager({
                     <div>
                       <div className="font-semibold text-stone-900">{item.productName}</div>
                       <div className="mt-1 text-sm text-stone-500">
-                        Sold {item.qty} / Refunded {item.refundedQty} / Still refundable {item.refundableQty}
+                        {t('soldCount', { qty: item.qty })} / {t('refundedCount', { qty: item.refundedQty })} / {t('refundableCount', { qty: item.refundableQty })}
                       </div>
                       <div className="mt-2 text-sm text-stone-600">
-                        Remaining value {money(item.refundableAmount, currencySymbol)}
+                        {t('remainingValue', { value: money(item.refundableAmount, currencySymbol) })}
                       </div>
                     </div>
                     {mode === 'refund' ? (
-                      <div className="grid gap-3 sm:grid-cols-[120px_170px_auto]">
-                        <Input
-                          type="number"
-                          min="0"
-                          max={item.refundableQty}
-                          value={String(line?.qty ?? 0)}
-                          onChange={(event) =>
-                            setReturnLines((current) => ({
-                              ...current,
-                              [item.id]: {
-                                ...(current[item.id] ?? { disposition: 'RESTOCK' }),
-                                qty: Math.max(0, Math.min(item.refundableQty, Number(event.target.value)))
-                              }
-                            }))
-                          }
-                        />
-                        <select
-                          className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-emerald-500"
-                          value={line?.disposition ?? 'RESTOCK'}
-                          onChange={(event) =>
-                            setReturnLines((current) => ({
-                              ...current,
-                              [item.id]: {
-                                ...(current[item.id] ?? { qty: 0 }),
-                                disposition: event.target.value as ReturnLineState['disposition']
-                              }
-                            }))
-                          }
-                        >
-                          <option value="RESTOCK">Return to stock</option>
-                          <option value="DAMAGED">Damaged / do not restock</option>
-                        </select>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          onClick={() =>
-                            setReturnLines((current) => ({
-                              ...current,
-                              [item.id]: {
-                                ...(current[item.id] ?? { disposition: 'RESTOCK' }),
-                                qty: item.refundableQty
-                              }
-                            }))
-                          }
-                        >
-                          Max
-                        </Button>
+                      <div className="flex flex-col gap-3">
+                        <div className="grid gap-3 sm:grid-cols-[120px_170px_auto]">
+                          <Input
+                            type="number"
+                            min="0"
+                            max={item.refundableQty}
+                            value={String(line?.qty ?? 0)}
+                            onChange={(event) =>
+                              setReturnLines((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  ...(current[item.id] ?? { disposition: 'RESTOCK', newCost: item.cost }),
+                                  qty: Math.max(0, Math.min(item.refundableQty, Number(event.target.value)))
+                                }
+                              }))
+                            }
+                          />
+                          <select
+                            className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500"
+                            value={line?.disposition ?? 'RESTOCK'}
+                            onChange={(event) =>
+                              setReturnLines((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  ...(current[item.id] ?? { qty: 0, newCost: item.cost }),
+                                  disposition: event.target.value as ReturnLineState['disposition']
+                                }
+                              }))
+                            }
+                          >
+                            <option value="RESTOCK">{t('returnToStock')}</option>
+                            <option value="DAMAGED">{t('damagedDoNotRestock')}</option>
+                          </select>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() =>
+                              setReturnLines((current) => ({
+                                ...current,
+                                [item.id]: {
+                                  ...(current[item.id] ?? { disposition: 'RESTOCK', newCost: item.cost }),
+                                  qty: item.refundableQty
+                                }
+                              }))
+                            }
+                          >
+                            {t('maxBtn')}
+                          </Button>
+                        </div>
+                        {item.productType === 'MOTORCYCLE' && (line?.qty ?? 0) > 0 && line?.disposition === 'RESTOCK' ? (
+                          <div className="flex flex-wrap items-center gap-3 mt-1.5 p-3 rounded-2xl border border-stone-150 bg-stone-50/50">
+                            <span className="text-sm font-semibold text-stone-600">{t('newCostLabel')}:</span>
+                            <div className="w-48">
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder={t('newCostPlaceholder')}
+                                value={line?.newCost ?? ''}
+                                onChange={(event) =>
+                                  setReturnLines((current) => ({
+                                    ...current,
+                                    [item.id]: {
+                                      ...(current[item.id] ?? { qty: 0, disposition: 'RESTOCK' }),
+                                      newCost: event.target.value
+                                    }
+                                  }))
+                                }
+                              />
+                            </div>
+                            <span className="text-xs text-stone-500">({t('originalCost')}: {money(item.cost, currencySymbol)})</span>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -460,8 +495,8 @@ export default function SaleAdjustmentManager({
             <div className="rounded-[24px] border border-stone-200 bg-stone-50/80 p-4">
               <div className="flex flex-wrap items-end justify-between gap-4">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">Replacement items</div>
-                  <h3 className="mt-2 text-xl font-black text-stone-950">Build the exchange replacement set</h3>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-stone-400">{t('replacementItems')}</div>
+                  <h3 className="mt-2 text-xl font-black text-stone-950">{t('buildExchangeSet')}</h3>
                 </div>
                 <Button
                   type="button"
@@ -470,13 +505,13 @@ export default function SaleAdjustmentManager({
                     setReplacementLines((current) => [...current, { id: crypto.randomUUID(), productId: '', qty: 1 }])
                   }
                 >
-                  Add replacement line
+                  {t('addReplacementLine')}
                 </Button>
               </div>
 
               <div className="mt-4">
                 <Input
-                  placeholder="Filter replacement products by name, SKU, or barcode"
+                  placeholder={t('filterPlaceholder')}
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                 />
@@ -488,7 +523,7 @@ export default function SaleAdjustmentManager({
                   return (
                     <div key={line.id} className="grid gap-3 rounded-[22px] border border-stone-200 bg-white p-4 lg:grid-cols-[minmax(0,1fr)_120px_auto]">
                       <select
-                        className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-emerald-500"
+                        className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500"
                         value={line.productId}
                         onChange={(event) =>
                           setReplacementLines((current) =>
@@ -496,10 +531,10 @@ export default function SaleAdjustmentManager({
                           )
                         }
                       >
-                        <option value="">Select product</option>
+                        <option value="">{t('selectProductOption')}</option>
                         {filteredProducts.map((productOption) => (
                           <option key={productOption.id} value={productOption.id}>
-                            {productOption.name} / {money(productOption.price, currencySymbol)} / {productOption.stockQty} in stock
+                            {productOption.name} / {money(productOption.price, currencySymbol)} / {t('inStock', { qty: productOption.stockQty })}
                           </option>
                         ))}
                       </select>
@@ -520,11 +555,11 @@ export default function SaleAdjustmentManager({
                         variant="secondary"
                         onClick={() => setReplacementLines((current) => current.filter((item) => item.id !== line.id))}
                       >
-                        Remove
+                        {t('removeBtn')}
                       </Button>
                       {product ? (
                         <div className="lg:col-span-3 text-sm text-stone-500">
-                          {product.sku ?? 'No SKU'} / {product.barcode ?? 'No barcode'} / {money(product.price, currencySymbol)} each
+                          {product.sku ?? t('noSKU')} / {product.barcode ?? t('noBarcode')} / {money(product.price, currencySymbol)} {t('each')}
                         </div>
                       ) : null}
                     </div>
@@ -532,7 +567,7 @@ export default function SaleAdjustmentManager({
                 })}
                 {!replacementLines.length ? (
                   <div className="rounded-[22px] border border-dashed border-stone-300 bg-white px-4 py-5 text-sm text-stone-500">
-                    No replacement items added yet.
+                    {t('noReplacementAdded')}
                   </div>
                 ) : null}
               </div>
@@ -541,76 +576,76 @@ export default function SaleAdjustmentManager({
         </Card>
 
         <Card className="space-y-5">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">Adjustment control</div>
-          <h2 className="text-2xl font-black text-stone-950">{mode === 'void' ? 'Void confirmation' : 'Reason, payout, and approval'}</h2>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-stone-400">{t('adjustmentControl')}</div>
+          <h2 className="text-2xl font-black text-stone-950">{mode === 'void' ? t('voidConfirmation') : t('reasonPayoutApproval')}</h2>
 
-          <Input placeholder="Refund / void reason" value={reason} onChange={(event) => setReason(event.target.value)} />
-          <Input placeholder="Notes (optional)" value={notes} onChange={(event) => setNotes(event.target.value)} />
-          <Input placeholder="Manager/Admin email" value={approverEmail} onChange={(event) => setApproverEmail(event.target.value)} />
-          <Input type="password" placeholder="Manager/Admin password" value={approverPassword} onChange={(event) => setApproverPassword(event.target.value)} />
+          <Input placeholder={t('reasonPlaceholder')} value={reason} onChange={(event) => setReason(event.target.value)} />
+          <Input placeholder={t('notesOptional')} value={notes} onChange={(event) => setNotes(event.target.value)} />
+          <Input placeholder={t('managerEmail')} value={approverEmail} onChange={(event) => setApproverEmail(event.target.value)} />
+          <Input type="password" placeholder={t('managerPassword')} value={approverPassword} onChange={(event) => setApproverPassword(event.target.value)} />
 
           <div className="rounded-[24px] border border-stone-200 bg-stone-50 p-4 text-sm text-stone-600">
-            <div className="flex justify-between"><span>Return credit</span><span>{money(mode === 'void' ? sale.totalAmount : returnCredit, currencySymbol)}</span></div>
+            <div className="flex justify-between"><span>{t('returnCredit')}</span><span>{money(mode === 'void' ? sale.totalAmount : returnCredit, currencySymbol)}</span></div>
             {mode === 'refund' && workflowType === 'EXCHANGE' ? (
               <>
-                <div className="mt-2 flex justify-between"><span>Replacement subtotal</span><span>{money(replacementSubtotal, currencySymbol)}</span></div>
-                <div className="mt-2 flex justify-between"><span>Replacement tax</span><span>{money(replacementTax, currencySymbol)}</span></div>
-                <div className="mt-2 flex justify-between"><span>Applied credit</span><span>-{money(appliedCredit, currencySymbol)}</span></div>
-                <div className="mt-2 flex justify-between"><span>Exchange due</span><span>{money(exchangeDue, currencySymbol)}</span></div>
+                <div className="mt-2 flex justify-between"><span>{t('replacementSubtotal')}</span><span>{money(replacementSubtotal, currencySymbol)}</span></div>
+                <div className="mt-2 flex justify-between"><span>{t('replacementTax')}</span><span>{money(replacementTax, currencySymbol)}</span></div>
+                <div className="mt-2 flex justify-between"><span>{t('appliedCredit')}</span><span>-{money(appliedCredit, currencySymbol)}</span></div>
+                <div className="mt-2 flex justify-between"><span>{t('exchangeDue')}</span><span>{money(exchangeDue, currencySymbol)}</span></div>
               </>
             ) : null}
             <div className="mt-3 flex justify-between border-t border-stone-200 pt-3 text-lg font-black text-stone-950">
-              <span>Refund due</span>
+              <span>{t('refundDue')}</span>
               <span>{money(refundDue, currencySymbol)}</span>
             </div>
           </div>
 
           {refundDue > 0 ? (
             <div className="space-y-3">
-              <div className="text-sm font-semibold text-stone-700">Refund payment lines</div>
+              <div className="text-sm font-semibold text-stone-700">{t('refundPaymentLines')}</div>
               {refundPayments.map((payment) => (
                 <div key={payment.id} className="rounded-[22px] border border-stone-200 bg-white p-4">
                   <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_auto]">
-                    <select className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-emerald-500" value={payment.method} onChange={(event) => updateRefundLine(payment.id, { method: event.target.value as PaymentMethod })}>
-                      {PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
+                    <select className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500" value={payment.method} onChange={(event) => updateRefundLine(payment.id, { method: event.target.value as PaymentMethod })}>
+                      {(['كاش', 'انستا باي', 'محفظه الكترونيه'] as const).map((method) => <option key={method} value={method}>{method}</option>)}
                     </select>
                     <Input type="number" step="0.01" value={payment.amount} onChange={(event) => updateRefundLine(payment.id, { amount: event.target.value })} />
                     <Button type="button" variant="secondary" onClick={() => setRefundPayments((current) => current.length === 1 ? current : current.filter((line) => line.id !== payment.id))}>Remove</Button>
                   </div>
-                  {requiresReferenceNumber(payment.method) ? <div className="mt-3"><Input placeholder="Reference number" value={payment.referenceNumber} onChange={(event) => updateRefundLine(payment.id, { referenceNumber: event.target.value })} /></div> : null}
+                  {requiresReferenceNumber(payment.method) ? <div className="mt-3"><Input placeholder={t('referenceNumber')} value={payment.referenceNumber} onChange={(event) => updateRefundLine(payment.id, { referenceNumber: event.target.value })} /></div> : null}
                 </div>
               ))}
               <div className="flex gap-3">
-                <Button type="button" variant="secondary" onClick={() => setRefundPayments((current) => [...current, createPaymentLine('')])}>Add refund line</Button>
-                <Button type="button" variant="secondary" onClick={() => setRefundPayments((current) => current.map((line, index) => index === 0 ? { ...line, amount: refundDue.toFixed(2) } : { ...line, amount: '0' }))}>Set exact refund</Button>
+                <Button type="button" variant="secondary" onClick={() => setRefundPayments((current) => [...current, createPaymentLine('')])}>{t('addRefundLine')}</Button>
+                <Button type="button" variant="secondary" onClick={() => setRefundPayments((current) => current.map((line, index) => index === 0 ? { ...line, amount: refundDue.toFixed(2) } : { ...line, amount: '0' }))}>{t('setExactRefund')}</Button>
               </div>
             </div>
           ) : null}
 
           {mode === 'refund' && workflowType === 'EXCHANGE' && exchangeDue > 0 ? (
             <div className="space-y-3">
-              <div className="text-sm font-semibold text-stone-700">Exchange difference payment lines</div>
+              <div className="text-sm font-semibold text-stone-700">{t('exchangePaymentLines')}</div>
               {exchangePayments.map((payment) => (
                 <div key={payment.id} className="rounded-[22px] border border-stone-200 bg-white p-4">
                   <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)_auto]">
-                    <select className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-emerald-500" value={payment.method} onChange={(event) => updateExchangeLine(payment.id, { method: event.target.value as PaymentMethod })}>
+                    <select className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm text-stone-900 outline-none focus:border-blue-500" value={payment.method} onChange={(event) => updateExchangeLine(payment.id, { method: event.target.value as PaymentMethod })}>
                       {PAYMENT_METHODS.map((method) => <option key={method} value={method}>{method}</option>)}
                     </select>
                     <Input type="number" step="0.01" value={payment.amount} onChange={(event) => updateExchangeLine(payment.id, { amount: event.target.value })} />
                     <Button type="button" variant="secondary" onClick={() => setExchangePayments((current) => current.length === 1 ? current : current.filter((line) => line.id !== payment.id))}>Remove</Button>
                   </div>
-                  {requiresReferenceNumber(payment.method) ? <div className="mt-3"><Input placeholder="Reference number" value={payment.referenceNumber} onChange={(event) => updateExchangeLine(payment.id, { referenceNumber: event.target.value })} /></div> : null}
+                  {requiresReferenceNumber(payment.method) ? <div className="mt-3"><Input placeholder={t('referenceNumber')} value={payment.referenceNumber} onChange={(event) => updateExchangeLine(payment.id, { referenceNumber: event.target.value })} /></div> : null}
                 </div>
               ))}
               <div className="flex gap-3">
-                <Button type="button" variant="secondary" onClick={() => setExchangePayments((current) => [...current, createPaymentLine('')])}>Add payment line</Button>
-                <Button type="button" variant="secondary" onClick={() => setExchangePayments((current) => current.map((line, index) => index === 0 ? { ...line, amount: exchangeDue.toFixed(2) } : { ...line, amount: '0' }))}>Set exact balance</Button>
+                <Button type="button" variant="secondary" onClick={() => setExchangePayments((current) => [...current, createPaymentLine('')])}>{t('addPaymentLine')}</Button>
+                <Button type="button" variant="secondary" onClick={() => setExchangePayments((current) => current.map((line, index) => index === 0 ? { ...line, amount: exchangeDue.toFixed(2) } : { ...line, amount: '0' }))}>{t('setExactBalance')}</Button>
               </div>
             </div>
           ) : null}
 
-          {!sale.canVoid && mode === 'void' ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">This sale already has adjustments or has been voided.</div> : null}
-          {!sale.canRefund && mode === 'refund' ? <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">This sale has no refundable quantity left.</div> : null}
+          {!sale.canVoid && mode === 'void' ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">{t('alreadyAdjusted')}</div> : null}
+          {!sale.canRefund && mode === 'refund' ? <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">{t('noRefundableQtyLeft')}</div> : null}
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
           <Button
@@ -618,7 +653,7 @@ export default function SaleAdjustmentManager({
             disabled={loading || (mode === 'void' ? !sale.canVoid : !sale.canRefund)}
             onClick={() => void submit()}
           >
-            {loading ? 'Processing...' : mode === 'void' ? 'Approve and void sale' : workflowType === 'EXCHANGE' ? 'Approve and process exchange' : 'Approve and issue refund'}
+            {loading ? t('processing') : mode === 'void' ? t('approveAndVoid') : workflowType === 'EXCHANGE' ? t('approveAndExchange') : t('approveAndRefund')}
           </Button>
         </Card>
       </div>

@@ -50,7 +50,7 @@ export async function PUT(request: Request) {
         where: { id: shopId },
         data: {
           name: parsed.data.shopName.trim(),
-          legalBusinessName: parsed.data.legalBusinessName.trim(),
+          legalBusinessName: normalizeText(parsed.data.legalBusinessName),
           phone: normalizeText(parsed.data.phone),
           email: normalizeText(parsed.data.email),
           address: normalizeText(parsed.data.address),

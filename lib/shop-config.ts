@@ -31,8 +31,8 @@ export const SHOP_TYPE_OPTIONS = [
   },
   {
     value: 'HARDWARE',
-    label: 'Hardware',
-    description: 'Straightforward stock controls with simpler defaults and optional tracking.'
+    label: 'Motorcycles & Parts',
+    description: 'Motorcycle inventory with fast-moving parts, fluids, and accessory tracking.'
   }
 ] as const;
 
@@ -246,25 +246,25 @@ const SHOP_TYPE_DEFAULTS: Record<SupportedShopType, ShopTypeDefaults> = {
     expiryTrackingEnabled: false,
     fefoEnabled: false,
     expiryAlertDays: 30,
-    starterCategories: ['Fasteners', 'Hand Tools', 'Electrical'],
-    starterSuppliers: [{ name: 'Hardware Trade Supplier', contactName: '', phone: '' }],
+    starterCategories: ['Motorcycles', 'Spare Parts', 'Oils & Fluids', 'Accessories'],
+    starterSuppliers: [{ name: 'Motorcycle Trade Supplier', contactName: '', phone: '' }],
     starterProducts: [
       {
-        name: 'Steel Hammer 16oz',
-        categoryName: 'Hand Tools',
-        sku: 'HDW-001',
+        name: 'Motorcycle Battery 12V',
+        categoryName: 'Spare Parts',
+        sku: 'MOTO-001',
         barcode: '',
-        cost: 180,
-        price: 320,
-        stockQty: 8,
+        cost: 650,
+        price: 980,
+        stockQty: 6,
         reorderPoint: 2,
         trackBatches: false,
         trackExpiry: false
       }
     ],
     hints: [
-      'Batch and expiry tracking stay optional for durable-goods workflows.',
-      'Inventory defaults remain simple unless a product specifically needs tighter traceability.'
+      'Keep fast-moving spare parts visible with tighter reorder points.',
+      'Use accessories and fluids categories to separate service items from units.'
     ]
   }
 };

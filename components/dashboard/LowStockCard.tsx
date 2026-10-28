@@ -6,6 +6,8 @@ import Card from '@/components/ui/Card';
 import Badge from '@/components/ui/Badge';
 import { money } from '@/lib/format';
 import type { SerializedLowStockProduct } from '@/lib/serializers/dashboard';
+import { useTranslations } from '@/components/providers/LocaleProvider';
+import { useLocalizedPath } from '@/lib/i18n/client';
 
 export default function LowStockCard({
   products,
@@ -14,19 +16,21 @@ export default function LowStockCard({
   products: SerializedLowStockProduct[];
   currencySymbol: string;
 }) {
+  const t = useTranslations();
+  const localizedPath = useLocalizedPath();
   return (
-    <Card className="overflow-hidden border-stone-200/80 bg-white/95">
+    <Card className="overflow-hidden border-blue-200/80 bg-white/95">
       <div className="mb-5 flex items-center justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-700">Restock queue</div>
-          <h2 className="mt-2 text-2xl font-black text-stone-900">Low-stock watch</h2>
-          <p className="mt-1 text-sm text-stone-500">Products that are approaching or already below their reorder threshold.</p>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-700">{t('dashboard.lowStock.kicker')}</div>
+          <h2 className="mt-2 text-2xl font-black text-stone-900">{t('dashboard.lowStock.title')}</h2>
+          <p className="mt-1 text-sm text-stone-500">{t('dashboard.lowStock.subtitle')}</p>
         </div>
         <Link
-          href="/inventory"
-          className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+          href={localizedPath('/inventory')}
+          className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
         >
-          Inventory
+          {t('dashboard.lowStock.inventoryCta')}
         </Link>
       </div>
 
@@ -54,26 +58,28 @@ export default function LowStockCard({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-lg font-black text-stone-900">{product.name}</div>
-                      <div className="mt-1 text-sm text-stone-500">{product.category?.name ?? 'Uncategorized'}</div>
+                      <div className="mt-1 text-sm text-stone-500">{product.category?.name ?? t('dashboard.lowStock.uncategorized')}</div>
                     </div>
-                    <Badge tone={isCritical ? 'red' : 'amber'}>{isCritical ? 'Critical' : 'Watch'}</Badge>
+                    <Badge tone={isCritical ? 'red' : 'amber'}>
+                      {isCritical ? t('dashboard.lowStock.badgeCritical') : t('dashboard.lowStock.badgeWatch')}
+                    </Badge>
                   </div>
 
                   <div className="mt-4 rounded-[22px] bg-white/86 p-3">
                     <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">
-                      <span>On hand {product.stockQty}</span>
-                      <span>Reorder point {product.reorderPoint}</span>
+                      <span>{t('dashboard.lowStock.onHand', { count: product.stockQty })}</span>
+                      <span>{t('dashboard.lowStock.reorderPoint', { count: product.reorderPoint })}</span>
                     </div>
                     <div className="mt-3 h-2.5 rounded-full bg-stone-200">
                       <div
-                        className={`h-full rounded-full ${isCritical ? 'bg-red-500' : 'bg-amber-500'}`}
+                        className={`h-full rounded-full ${isCritical ? 'bg-red-500' : 'bg-blue-500'}`}
                         style={{ width: `${fill}%` }}
                       />
                     </div>
                   </div>
 
                   <div className="mt-4 flex items-center justify-between gap-3 text-sm text-stone-600">
-                    <span>{product.stockQty} unit(s) left before replenishment.</span>
+                    <span>{t('dashboard.lowStock.unitsLeft', { count: product.stockQty })}</span>
                     <span className="font-semibold text-stone-900">{money(product.price, currencySymbol)}</span>
                   </div>
                 </div>
@@ -82,20 +88,20 @@ export default function LowStockCard({
           })
         ) : (
           <div className="rounded-[28px] border border-dashed border-stone-300 bg-stone-50 p-5">
-            <div className="text-sm font-semibold text-stone-900">No low-stock products right now.</div>
-            <div className="mt-2 text-sm text-stone-500">Stock looks healthy for the current branch. Keep receiving and inventory adjustments up to date so alerts stay useful.</div>
+            <div className="text-sm font-semibold text-stone-900">{t('dashboard.lowStock.emptyTitle')}</div>
+            <div className="mt-2 text-sm text-stone-500">{t('dashboard.lowStock.emptyBody')}</div>
             <div className="mt-4 flex flex-wrap gap-2">
               <Link
-                href="/inventory"
-                className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+                href={localizedPath('/inventory')}
+                className="inline-flex rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
               >
-                Review inventory
+                {t('dashboard.lowStock.reviewInventory')}
               </Link>
               <Link
-                href="/purchases"
+                href={localizedPath('/purchases')}
                 className="inline-flex rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-semibold text-stone-700 transition hover:border-stone-300 hover:bg-stone-50"
               >
-                Record purchase
+                {t('dashboard.lowStock.recordPurchase')}
               </Link>
             </div>
           </div>

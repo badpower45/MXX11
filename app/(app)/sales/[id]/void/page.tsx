@@ -4,6 +4,7 @@ import SaleAdjustmentManager from '@/components/sales/SaleAdjustmentManager';
 import { requirePagePermission } from '@/lib/authz';
 import { prisma } from '@/lib/prisma';
 import { saleDetailInclude, serializeSaleDetail } from '@/lib/sale-adjustments';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
 export default async function SaleVoidPage({
   params
@@ -12,6 +13,8 @@ export default async function SaleVoidPage({
 }) {
   const { id } = await params;
   const { shopId, session } = await requirePagePermission('VOID_SALES');
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
 
   const [sale, settings] = await Promise.all([
     prisma.sale.findFirst({
@@ -33,14 +36,14 @@ export default async function SaleVoidPage({
   return (
     <div className="space-y-6">
       <AppHeader
-        title={`Void ${sale.saleNumber}`}
-        subtitle="Reverse the entire sale, restore stock, record the payout method, and keep the approval trail attached to the adjustment."
+        title={t('adjustmentManager.voidTitle', { saleNumber: sale.saleNumber })}
+        subtitle={t('adjustmentManager.voidSubtitle')}
       />
 
       <SaleAdjustmentManager
         mode="void"
         sale={serializeSaleDetail(sale)}
-        currencySymbol={settings?.currencySymbol ?? '₱'}
+        currencySymbol={settings?.currencySymbol ?? 'ج.م '}
         currentUserEmail={session.user.email ?? ''}
       />
     </div>

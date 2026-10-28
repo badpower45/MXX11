@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslations } from '@/lib/i18n/client';
 import Badge from '@/components/ui/Badge';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
@@ -16,6 +17,7 @@ type Category = {
 };
 
 export default function CategoryManager({ initialCategories }: { initialCategories: Category[] }) {
+  const t = useTranslations('categories');
   const [categories, setCategories] = useState(initialCategories);
   const [name, setName] = useState('');
   const [parentId, setParentId] = useState('');
@@ -33,20 +35,24 @@ export default function CategoryManager({ initialCategories }: { initialCategori
       body: JSON.stringify({ name, parentId: parentId || null })
     });
 
-    const data = await response.json().catch(() => ({ error: 'Failed to create category.' }));
+    const data = await response.json().catch(() => ({ error: t('failedCreate') }));
     if (!response.ok) {
-      setError(data.error ?? 'Failed to create category.');
+      setError(data.error ?? t('failedCreate'));
       return;
     }
 
     setCategories((current) => [data.category, ...current]);
     setName('');
     setParentId('');
-    setSuccess('Category created successfully.');
+    setSuccess(t('createdSuccess'));
   }
 
   async function toggleActive(category: Category) {
-    const confirmed = window.confirm(`${category.isActive ? 'Archive' : 'Restore'} ${category.name}?`);
+    const confirmed = window.confirm(
+      category.isActive
+        ? t('archiveConfirm', { name: category.name })
+        : t('restoreConfirm', { name: category.name })
+    );
     if (!confirmed) {
       return;
     }
@@ -63,7 +69,7 @@ export default function CategoryManager({ initialCategories }: { initialCategori
 
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.category) {
-      setError(data?.error ?? 'Failed to update category.');
+      setError(data?.error ?? t('failedUpdate'));
       return;
     }
 
@@ -73,16 +79,16 @@ export default function CategoryManager({ initialCategories }: { initialCategori
   }
 
   async function removeCategory(category: Category) {
-    const confirmed = window.confirm(`Delete ${category.name}? This cannot be undone.`);
+    const confirmed = window.confirm(t('deleteConfirm', { name: category.name }));
     if (!confirmed) {
       return;
     }
 
     const response = await fetch(`/api/categories/${category.id}`, { method: 'DELETE' });
-    const data = await response.json().catch(() => ({ error: 'Failed to delete category.' }));
+    const data = await response.json().catch(() => ({ error: t('failedDelete') }));
 
     if (!response.ok) {
-      setError(data.error ?? 'Failed to delete category.');
+      setError(data.error ?? t('failedDelete'));
       return;
     }
 
@@ -92,20 +98,20 @@ export default function CategoryManager({ initialCategories }: { initialCategori
   return (
     <div className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
       <Card>
-        <h2 id="new-category" className="text-xl font-black text-stone-900">Create category</h2>
+        <h2 id="new-category" className="text-xl font-black text-stone-900">{t('createTitle')}</h2>
         <div className="mt-5 grid gap-4">
           <div>
-            <label className="mb-2 block text-sm font-semibold">Category name</label>
-            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Soft Drinks" />
+            <label className="mb-2 block text-sm font-semibold">{t('nameLabel')}</label>
+            <Input value={name} onChange={(event) => setName(event.target.value)} placeholder={t('createExample')} />
           </div>
           <div>
-            <label className="mb-2 block text-sm font-semibold">Parent category</label>
+            <label className="mb-2 block text-sm font-semibold">{t('parentLabel')}</label>
             <select
               className="w-full rounded-xl border border-stone-300 bg-stone-50 px-4 py-2.5 text-sm"
               value={parentId}
               onChange={(event) => setParentId(event.target.value)}
             >
-              <option value="">No parent</option>
+              <option value="">{t('noParent')}</option>
               {parents.map((category) => (
                 <option key={category.id} value={category.id}>
                   {category.name}
@@ -121,17 +127,17 @@ export default function CategoryManager({ initialCategories }: { initialCategori
           ) : null}
 
           {success ? (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
               {success}
             </div>
           ) : null}
 
-          <Button type="button" onClick={addCategory}>Save category</Button>
+          <Button type="button" onClick={addCategory}>{t('saveCategory')}</Button>
         </div>
       </Card>
 
       <Card>
-        <h2 className="text-xl font-black text-stone-900">Category list</h2>
+        <h2 className="text-xl font-black text-stone-900">{t('listTitle')}</h2>
         <div className="mt-4 space-y-3">
           {categories.length ? (
             categories.map((category) => (
@@ -141,20 +147,20 @@ export default function CategoryManager({ initialCategories }: { initialCategori
                     <div className="font-semibold text-stone-900">{category.name}</div>
                     <div className="mt-1 flex flex-wrap gap-2">
                       <Badge tone={category.isActive ? 'emerald' : 'stone'}>
-                        {category.isActive ? 'Active' : 'Archived'}
+                        {category.isActive ? t('active') : t('archived')}
                       </Badge>
-                      <Badge tone="blue">{category.parentId ? 'Subcategory' : 'Top level'}</Badge>
+                      <Badge tone="blue">{category.parentId ? t('subcategory') : t('topLevel')}</Badge>
                     </div>
                     <div className="mt-2 text-sm text-stone-500">
-                      {category._count?.products ?? 0} product(s) / {category._count?.children ?? 0} child category(s)
+                      {t('counts', { products: category._count?.products ?? 0, children: category._count?.children ?? 0 })}
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <Button type="button" variant="secondary" onClick={() => toggleActive(category)}>
-                      {category.isActive ? 'Archive' : 'Restore'}
+                      {category.isActive ? t('archive') : t('restore')}
                     </Button>
                     <Button type="button" variant="danger" onClick={() => removeCategory(category)}>
-                      Delete
+                      {t('delete')}
                     </Button>
                   </div>
                 </div>
@@ -162,7 +168,7 @@ export default function CategoryManager({ initialCategories }: { initialCategori
             ))
           ) : (
             <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-5 text-sm text-stone-500">
-              No categories yet. Create one to keep the product catalog organized.
+              {t('noCategories')}
             </div>
           )}
         </div>

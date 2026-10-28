@@ -1,5 +1,8 @@
 import PageSkeleton from '@/components/system/PageSkeleton';
+import { getServerLocale, getServerTranslator } from '@/lib/i18n/server';
 
-export default function AuthSegmentLoading() {
-  return <PageSkeleton title="Loading access flow" subtitle="Preparing secure sign-in and account recovery screens." rows={3} />;
+export default async function AuthSegmentLoading() {
+  const locale = await getServerLocale();
+  const t = getServerTranslator(locale);
+  return <PageSkeleton title={t('skeleton.loadingAccessFlow')} subtitle={t('skeleton.preparingAccess')} rows={3} />;
 }

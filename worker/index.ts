@@ -111,7 +111,7 @@ async function dailySummary(jobId: string, shopId: string) {
     0
   );
   const purchaseCount = new Set(purchaseReceipts.map((receipt) => receipt.purchaseId)).size;
-  const currency = settings?.currencySymbol ?? 'PHP ';
+  const currency = settings?.currencySymbol ?? 'ج.م ';
 
   await createNotificationOncePerDay({
     shopId,

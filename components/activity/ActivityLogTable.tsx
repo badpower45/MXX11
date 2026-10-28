@@ -2,6 +2,7 @@
 
 import Badge from '@/components/ui/Badge';
 import { dateTime } from '@/lib/format';
+import { useTranslations } from '@/lib/i18n/client';
 
 type ActivityItem = {
   id: string;
@@ -32,10 +33,12 @@ function toneForAction(action: string) {
 }
 
 export default function ActivityLogTable({ items }: { items: ActivityItem[] }) {
+  const t = useTranslations('activity');
+
   if (!items.length) {
     return (
       <div className="rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-6 text-sm text-stone-500">
-        No activity has been logged for this shop yet.
+        {t('empty')}
       </div>
     );
   }
@@ -45,11 +48,11 @@ export default function ActivityLogTable({ items }: { items: ActivityItem[] }) {
       <table className="min-w-full text-left text-sm">
         <thead className="text-stone-500">
           <tr>
-            <th className="px-3 py-3">When</th>
-            <th className="px-3 py-3">Action</th>
-            <th className="px-3 py-3">Entity</th>
-            <th className="px-3 py-3">Description</th>
-            <th className="px-3 py-3">User</th>
+            <th className="px-3 py-3">{t('table.when')}</th>
+            <th className="px-3 py-3">{t('table.action')}</th>
+            <th className="px-3 py-3">{t('table.entity')}</th>
+            <th className="px-3 py-3">{t('table.description')}</th>
+            <th className="px-3 py-3">{t('table.user')}</th>
           </tr>
         </thead>
         <tbody>
@@ -62,7 +65,7 @@ export default function ActivityLogTable({ items }: { items: ActivityItem[] }) {
               <td className="px-3 py-3 font-medium text-stone-900">{item.entityType}</td>
               <td className="px-3 py-3 text-stone-700">{item.description}</td>
               <td className="px-3 py-3 text-stone-600">
-                {item.user?.name || item.user?.email || 'System'}
+                {item.user?.name || item.user?.email || t('systemUser')}
               </td>
             </tr>
           ))}

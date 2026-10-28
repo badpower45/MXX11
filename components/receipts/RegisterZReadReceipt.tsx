@@ -78,7 +78,7 @@ export default function RegisterZReadReceipt({
       <div className="zread-root mx-auto max-w-5xl rounded-[32px] border border-stone-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col gap-6 border-b border-dashed border-stone-300 pb-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-emerald-700">Register Z-read</div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-700">Register Z-read</div>
             <h1 className="mt-2 text-3xl font-black text-stone-950">{shop.name}</h1>
             <div className="mt-2 space-y-1 text-sm text-stone-600">
               {shop.address ? <div>{shop.address}</div> : null}
@@ -109,23 +109,88 @@ export default function RegisterZReadReceipt({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-4">
-          <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Opening float</div>
-            <div className="mt-2 text-2xl font-black text-stone-950">{money(session.openingFloat, currencySymbol)}</div>
-          </div>
-          <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Expected cash</div>
-            <div className="mt-2 text-2xl font-black text-emerald-700">{money(session.closingExpected ?? summary.expectedCash, currencySymbol)}</div>
-          </div>
-          <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Actual cash</div>
-            <div className="mt-2 text-2xl font-black text-stone-950">{money(session.closingActual, currencySymbol)}</div>
-          </div>
-          <div className="rounded-[24px] border border-stone-200 bg-stone-50 px-5 py-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Variance</div>
-            <div className={`mt-2 text-2xl font-black ${Number(session.variance ?? 0) > 0 ? 'text-emerald-700' : Number(session.variance ?? 0) < 0 ? 'text-red-700' : 'text-stone-950'}`}>
-              {money(session.variance, currencySymbol)}
+        <div className="mt-6 rounded-[24px] border border-stone-200 bg-stone-50 p-6">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400 mb-4">Multi-Drawer Closeout Breakdown</div>
+          <div className="grid gap-6 md:grid-cols-3">
+            {/* Cash Drawer */}
+            <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+              <div className="font-bold text-stone-900 border-b border-stone-200 pb-2 mb-3">الدرج الفرعي (كاش)</div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Opening float:</span>
+                  <span className="font-semibold text-stone-950">{money(session.openingFloat, currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Expected:</span>
+                  <span className="font-bold text-blue-700">{money(session.closingExpectedCash ?? summary.expectedCash, currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Actual:</span>
+                  <span className="font-semibold text-stone-950">{money(session.closingActualCash ?? session.closingActual, currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between border-t border-stone-200 pt-2 font-semibold">
+                  <span className="text-stone-600">Variance:</span>
+                  <span className={Number(session.variance ?? 0) > 0 ? 'text-blue-700' : Number(session.variance ?? 0) < 0 ? 'text-red-700' : 'text-stone-950'}>
+                    {money(session.variance, currencySymbol)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* InstaPay Drawer */}
+            <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+              <div className="font-bold text-stone-900 border-b border-stone-200 pb-2 mb-3">درج انستا باي (InstaPay)</div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Expected:</span>
+                  <span className="font-bold text-blue-700">{money(session.closingExpectedInstaPay ?? summary.expectedInstaPay, currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Actual:</span>
+                  <span className="font-semibold text-stone-950">{money(session.closingActualInstaPay ?? '0.00', currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between border-t border-stone-200 pt-2 font-semibold">
+                  <span className="text-stone-600">Variance:</span>
+                  {(() => {
+                    const expectedInsta = Number(session.closingExpectedInstaPay ?? summary.expectedInstaPay ?? 0);
+                    const actualInsta = Number(session.closingActualInstaPay ?? 0);
+                    const varInsta = actualInsta - expectedInsta;
+                    return (
+                      <span className={varInsta > 0 ? 'text-blue-700' : varInsta < 0 ? 'text-red-700' : 'text-stone-950'}>
+                        {money(varInsta, currencySymbol)}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Wallet Drawer */}
+            <div className="rounded-[20px] border border-stone-200 bg-white p-4">
+              <div className="font-bold text-stone-900 border-b border-stone-200 pb-2 mb-3">درج المحفظة الإلكترونية (Wallet)</div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Expected:</span>
+                  <span className="font-bold text-blue-700">{money(session.closingExpectedWallet ?? summary.expectedWallet, currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-stone-500">Actual:</span>
+                  <span className="font-semibold text-stone-950">{money(session.closingActualWallet ?? '0.00', currencySymbol)}</span>
+                </div>
+                <div className="flex justify-between border-t border-stone-200 pt-2 font-semibold">
+                  <span className="text-stone-600">Variance:</span>
+                  {(() => {
+                    const expectedWall = Number(session.closingExpectedWallet ?? summary.expectedWallet ?? 0);
+                    const actualWall = Number(session.closingActualWallet ?? 0);
+                    const varWall = actualWall - expectedWall;
+                    return (
+                      <span className={varWall > 0 ? 'text-blue-700' : varWall < 0 ? 'text-red-700' : 'text-stone-950'}>
+                        {money(varWall, currencySymbol)}
+                      </span>
+                    );
+                  })()}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -145,7 +210,7 @@ export default function RegisterZReadReceipt({
                 </div>
                 <div className="rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Cash sales</div>
-                  <div className="mt-1 text-2xl font-black text-emerald-700">{money(summary.cashSalesTotal, currencySymbol)}</div>
+                  <div className="mt-1 text-2xl font-black text-blue-700">{money(summary.cashSalesTotal, currencySymbol)}</div>
                 </div>
                 <div className="rounded-[20px] border border-stone-200 bg-stone-50 px-4 py-3">
                   <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Cash refunds</div>
@@ -207,7 +272,7 @@ export default function RegisterZReadReceipt({
                         </div>
                         {entry.note ? <div className="mt-2 text-sm text-stone-600">{entry.note}</div> : null}
                       </div>
-                      <div className={`text-right text-lg font-black ${Number(entry.amount) >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                      <div className={`text-right text-lg font-black ${Number(entry.amount) >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
                         {Number(entry.amount) >= 0 ? '+' : ''}
                         {money(entry.amount, currencySymbol)}
                       </div>

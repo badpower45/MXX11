@@ -8,10 +8,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum ProductType {
+  MOTORCYCLE
+  SPARE_PART
+}
+
+enum PaymentDrawerType {
+  CASH
+  INSTAPAY
+  WALLET
+}
+
+enum MotorcycleCondition {
+  NEW
+  USED
+}
+
 enum ShopRole {
   ADMIN
   MANAGER
   CASHIER
+  STOCK_COUNTER
 }
 
 enum ShopType {
@@ -27,6 +44,8 @@ enum ShopType {
   COSMETICS_BEAUTY
   MEDICAL_SUPPLIES
   HARDWARE
+  MOTORCYCLE_AND_SPARE_PARTS
+  SPARE_PARTS_ONLY
 }
 
 enum InventoryMovementType {
@@ -126,6 +145,18 @@ enum NotificationType {
   LOW_STOCK
   DAILY_SUMMARY
   SYSTEM
+  SHIPMENT_ASSIGNED
+  SHIPMENT_STAGE_CHANGED
+}
+
+enum ShipmentStage {
+  NEW
+  EXTERNAL_PROCUREMENT
+  WAREHOUSE_PREPARATION
+  PORT_CUSTOMS_CLEARANCE
+  IN_TRANSIT_TO_BERTH
+  DELIVERED_TO_VESSEL
+  CANCELLED
 }
 
 enum WorkerJobType {
@@ -222,6 +253,8 @@ model User {
   ownedShops                Shop[]                   @relation("ShopOwner")
   memberships               UserShop[]
   cashierSales              Sale[]                   @relation("CashierUser")
+  salesmanSales             Sale[]                   @relation("SalesmanUser")
+  stockCountAssignments     StockCountAssignee[]
   createdSaleAdjustments    SaleAdjustment[]         @relation("SaleAdjustmentCreatedBy")
   approvedSaleAdjustments   SaleAdjustment[]         @relation("SaleAdjustmentApprovedBy")
   createdStockCounts        StockCount[]             @relation("StockCountCreatedBy")
@@ -247,6 +280,15 @@ model User {
   passwordResetTokens       PasswordResetToken[]     @relation("PasswordResetTokenUser")
   resetTokensCreated        PasswordResetToken[]     @relation("PasswordResetTokenCreatedBy")
   jobsCreated               WorkerJob[]              @relation("WorkerJobCreatedBy")
+  expenses                  BranchExpense[]
+  salaryPayments            SalaryPayment[]
+  notifications             Notification[]
+  coordinatedShipments      ShipSupplyOrder[]        @relation("ShipmentCoordinator")
+  procurementShipments      ShipSupplyOrder[]        @relation("ShipmentProcurementOfficer")
+  warehouseShipments        ShipSupplyOrder[]        @relation("ShipmentWarehouseOfficer")
+  customsShipments          ShipSupplyOrder[]        @relation("ShipmentCustomsOfficer")
+  deliveryShipments         ShipSupplyOrder[]        @relation("ShipmentDeliveryOfficer")
+  performedStageLogs        ShipmentStageLog[]       @relation("StageLogPerformer")
   createdAt                 DateTime                 @default(now())
   updatedAt                 DateTime                 @updatedAt
 
@@ -263,6 +305,7 @@ model Shop {
   email                  String?
   address                String?
   taxId                  String?
+  linkedShopId           String?
   ownerId                String
   owner                  User                    @relation("ShopOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   defaultUsers           User[]                  @relation("DefaultShop")
@@ -299,6 +342,14 @@ model Shop {
   workerJobs             WorkerJob[]
   inventoryMoves         InventoryMovement[]
   documentSeqs           DocumentSequence[]
+  expenses               BranchExpense[]
+  installmentDues        InstallmentCompanyDue[]
+  trafficInvoices        TrafficInvoice[]
+  dealerDebts            DealerDebt[]
+  reservations           Reservation[]
+  salaryPayments         SalaryPayment[]
+  guestStaff             GuestStaff[]
+  shipSupplyOrders       ShipSupplyOrder[]
   createdAt              DateTime                @default(now())
   updatedAt              DateTime                @updatedAt
 
@@ -317,6 +368,8 @@ model UserShop {
   staffPinHash      String?
   pinSetAt          DateTime?
   createdAt         DateTime  @default(now())
+  baseSalary        Decimal?  @db.Decimal(12, 2)
+  commissionRate    Decimal   @default(0) @db.Decimal(5, 2)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
@@ -366,6 +419,7 @@ model Customer {
   parkedSales   ParkedSale[]
   loyaltyLedger CustomerLoyaltyLedger[]
   creditLedgers CustomerCreditLedger[]
+  shipSupplyOrders ShipSupplyOrder[]
   createdAt     DateTime                @default(now())
   updatedAt     DateTime                @updatedAt
 
@@ -400,6 +454,7 @@ model Product {
   saleItems             SaleItem[]
   adjustmentItems       SaleAdjustmentItem[]
   stockCountItems       StockCountItem[]
+  stockCountUserEntries StockCountUserEntry[]
   batches               ProductBatch[]
   purchaseItems         PurchaseItem[]
   purchaseReceiptItems  PurchaseReceiptItem[]
@@ -407,6 +462,22 @@ model Product {
   outgoingTransferItems StockTransferItem[]    @relation("StockTransferSourceProduct")
   incomingTransferItems StockTransferItem[]    @relation("StockTransferDestinationProduct")
   inventoryMoves        InventoryMovement[]
+  shipSupplyOrderItems  ShipSupplyOrderItem[]
+  productType           ProductType            @default(MOTORCYCLE)
+  brand                 String?
+  supplierPrice         Decimal?               @db.Decimal(12, 2)
+  dealerCode            String?
+  assemblyCost          Decimal?               @db.Decimal(12, 2)
+  externalTransportCost Decimal?               @db.Decimal(12, 2)
+  internalTransportCost Decimal?               @db.Decimal(12, 2)
+  maintenanceCost       Decimal?               @db.Decimal(12, 2)
+  otherCosts            Decimal?               @db.Decimal(12, 2)
+  condition             MotorcycleCondition    @default(NEW)
+  color                 String?
+  motorNumber           String?
+  chassisNumber         String?
+  chassisPhotoUrl       String?
+  motorPhotoUrl         String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
@@ -441,8 +512,11 @@ model Sale {
   notes                   String?
   cashierName             String?
   voidReason              String?
+  salesmanId              String?
+  salesmanCommission      Decimal?                @db.Decimal(12, 2)
   shop                    Shop                    @relation(fields: [shopId], references: [id], onDelete: Cascade)
   cashierUser             User?                   @relation("CashierUser", fields: [cashierUserId], references: [id], onDelete: SetNull)
+  salesman                User?                   @relation("SalesmanUser", fields: [salesmanId], references: [id], onDelete: SetNull)
   customer                Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items                   SaleItem[]
   payments                SalePayment[]
@@ -450,6 +524,16 @@ model Sale {
   customerCreditLedger    CustomerCreditLedger?
   adjustments             SaleAdjustment[]        @relation("SourceSaleAdjustments")
   exchangeFromAdjustments SaleAdjustment[]        @relation("ExchangeSaleAdjustments")
+  installmentDue          InstallmentCompanyDue?
+  trafficInvoice          TrafficInvoice?
+  shipSupplyOrders        ShipSupplyOrder[]
+  customerNationalId      String?
+  customerNationalIdPhoto String?
+  motorcycleColor         String?
+  motorcycleMotorNumber   String?
+  motorcycleChassisNumber String?
+  motorcycleChassisPhoto  String?
+  motorcycleMotorPhoto    String?
   createdAt               DateTime                @default(now())
   updatedAt               DateTime                @updatedAt
 
@@ -486,6 +570,12 @@ model CashSession {
   reviewedByUser       User?             @relation("CashSessionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
   reopenedByUser       User?             @relation("CashSessionReopenedBy", fields: [reopenedByUserId], references: [id], onDelete: SetNull)
   movements            CashMovement[]
+  closingExpectedCash     Decimal? @db.Decimal(12, 2)
+  closingActualCash       Decimal? @db.Decimal(12, 2)
+  closingExpectedInstaPay Decimal? @db.Decimal(12, 2)
+  closingActualInstaPay   Decimal? @db.Decimal(12, 2)
+  closingExpectedWallet   Decimal? @db.Decimal(12, 2)
+  closingActualWallet     Decimal? @db.Decimal(12, 2)
 
   @@index([shopId, openedAt])
   @@index([shopId, userId, status])
@@ -504,6 +594,7 @@ model CashMovement {
   shop            Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
   cashSession     CashSession      @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
   createdByUser   User             @relation("CashMovementCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  drawer          String?
 
   @@index([shopId, createdAt])
   @@index([cashSessionId, createdAt])
@@ -539,6 +630,7 @@ model SalePayment {
   amount          Decimal  @db.Decimal(12, 2)
   referenceNumber String?
   createdAt       DateTime @default(now())
+  drawerType      PaymentDrawerType?
   sale            Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([saleId, createdAt])
@@ -625,6 +717,8 @@ model StockCount {
   createdByUser    User             @relation("StockCountCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
   approvedByUser   User?            @relation("StockCountApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
   items            StockCountItem[]
+  assignees        StockCountAssignee[]
+  userEntries      StockCountUserEntry[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 
@@ -650,6 +744,54 @@ model StockCountItem {
 
   @@unique([stockCountId, productId])
   @@index([stockCountId, createdAt])
+  @@index([productId])
+}
+
+model StockCountAssignee {
+  id           String                @id @default(cuid())
+  stockCountId String
+  userId       String?
+  guestStaffId String?
+  completedAt  DateTime?             // Track when counter clicks "Done" (تم)
+  createdAt    DateTime              @default(now())
+  stockCount   StockCount            @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  user         User?                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guestStaff   GuestStaff?           @relation(fields: [guestStaffId], references: [id], onDelete: Cascade)
+  userEntries  StockCountUserEntry[]
+
+  @@index([stockCountId])
+  @@index([userId])
+  @@index([guestStaffId])
+}
+
+model GuestStaff {
+  id        String   @id @default(cuid())
+  shopId    String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  shop      Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  stockCountAssignees StockCountAssignee[]
+
+  @@index([shopId])
+}
+
+model StockCountUserEntry {
+  id                   String             @id @default(cuid())
+  stockCountId         String
+  productId            String
+  stockCountAssigneeId String
+  actualQty            Int                @default(0)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  stockCount           StockCount         @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  product              Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  assignee             StockCountAssignee @relation(fields: [stockCountAssigneeId], references: [id], onDelete: Cascade)
+
+  @@unique([stockCountAssigneeId, productId])
+  @@index([stockCountId])
   @@index([productId])
 }
 
@@ -804,6 +946,7 @@ model ProductVariant {
   barcode         String?
   priceOverride   Decimal?         @db.Decimal(12, 2)
   costOverride    Decimal?         @db.Decimal(12, 2)
+  stockQty        Int              @default(0)
   isActive        Boolean          @default(true)
   product         Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   saleItems       SaleItem[]
@@ -877,6 +1020,7 @@ model Supplier {
   payableEntries  AccountsPayableEntry[]
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
+  dealerDebts     DealerDebt[]
 
   @@unique([shopId, name])
   @@index([shopId])
@@ -1171,15 +1315,18 @@ model AccountsPayableEntry {
 model Notification {
   id        String           @id @default(cuid())
   shopId    String
+  userId    String?
   type      NotificationType
   title     String
   message   String
   isRead    Boolean          @default(false)
   shop      Shop             @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user      User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   createdAt DateTime         @default(now())
 
   @@index([shopId, createdAt])
   @@index([shopId, isRead])
+  @@index([userId, isRead])
 }
 
 model ActivityLog {
@@ -1250,10 +1397,10 @@ model EmailVerificationToken {
 model ShopSetting {
   id                    String                @id @default(cuid())
   shopId                String                @unique
-  currencyCode          String                @default("PHP")
-  timezone              String                @default("Asia/Manila")
+  currencyCode          String                @default("EGP")
+  timezone              String                @default("Africa/Cairo")
   taxMode               TaxMode               @default(EXCLUSIVE)
-  currencySymbol        String                @default("₱")
+  currencySymbol        String                @default("ج.م ")
   taxRate               Decimal               @default(0) @db.Decimal(5, 2)
   defaultPaymentMethods Json?
   receiptHeader         String?
@@ -1316,3 +1463,233 @@ model DocumentSequence {
   @@unique([shopId, type, dateKey])
   @@index([shopId, type])
 }
+
+enum ExpenseCategory {
+  PRINTING_PAPER
+  PENS
+  STAPLES
+  ELECTRICITY
+  RENT
+  MISCELLANEOUS
+  TIPS
+  PERSONAL_WITHDRAWAL
+  SALARY
+  OTHER
+}
+
+model BranchExpense {
+  id          String          @id @default(cuid())
+  shopId      String
+  userId      String
+  category    ExpenseCategory
+  amount      Decimal         @db.Decimal(12, 2)
+  reason      String?
+  recipient   String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  shop        Shop            @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user        User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  drawer      String?         @default("CASH")
+
+  @@index([shopId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model InstallmentCompanyDue {
+  id             String   @id @default(cuid())
+  shopId         String
+  saleId         String   @unique
+  companyName    String
+  pullDate       DateTime
+  saleDate       DateTime
+  customerName   String
+  customerPhone  String?
+  pullAmount     Decimal  @db.Decimal(12, 2)
+  saleAmount     Decimal  @db.Decimal(12, 2)
+  adminFees      Decimal  @db.Decimal(12, 2)
+  dueDate        DateTime
+  dueAmount      Decimal  @db.Decimal(12, 2)
+  isCollected    Boolean  @default(false)
+  collectedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  shop           Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  sale           Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, dueDate])
+  @@index([companyName])
+}
+
+enum TrafficInvoiceStatus {
+  PENDING_SEND
+  IN_TRANSIT
+  DELIVERED
+}
+
+model TrafficInvoice {
+  id                   String               @id @default(cuid())
+  shopId               String
+  saleId               String               @unique
+  customerName         String
+  status               TrafficInvoiceStatus @default(PENDING_SEND)
+  transportCost        Decimal              @default(0) @db.Decimal(12, 2)
+  cairoReceiptCost     Decimal              @default(0) @db.Decimal(12, 2)
+  receivedAtCairo      DateTime?
+  deliveryFeeCollected Decimal              @default(0) @db.Decimal(12, 2)
+  deliveredToCustomerAt DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  shop                 Shop                 @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  sale                 Sale                 @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status])
+  @@index([customerName])
+}
+
+enum DealerPaymentMode {
+  CASH
+  ON_ACCOUNT
+  DEFERRED
+}
+
+model DealerDebt {
+  id            String            @id @default(cuid())
+  shopId        String
+  supplierId    String
+  dealerCode    String
+  purchaseId    String?
+  totalAmount   Decimal           @db.Decimal(12, 2)
+  paidAmount    Decimal           @default(0) @db.Decimal(12, 2)
+  remainingDebt Decimal           @db.Decimal(12, 2)
+  paymentMode   DealerPaymentMode
+  notes         String?
+  isSettled     Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  shop          Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  supplier      Supplier          @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+
+  @@index([shopId, isSettled])
+}
+
+model Reservation {
+  id                 String   @id @default(cuid())
+  shopId             String
+  customerName       String
+  customerPhone      String?
+  motorcycleDetails  String
+  depositAmount      Decimal  @db.Decimal(12, 2)
+  remainingAmount    Decimal  @db.Decimal(12, 2)
+  totalAmount        Decimal  @db.Decimal(12, 2)
+  isCompleted        Boolean  @default(false)
+  completedAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  shop               Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([shopId, isCompleted])
+}
+
+model SalaryPayment {
+  id            String   @id @default(cuid())
+  shopId        String
+  userId        String
+  amount        Decimal  @db.Decimal(12, 2)
+  paidAt        DateTime @default(now())
+  paymentMode   String   @default("CASH")
+  notes         String?
+  shop          Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([shopId])
+  @@index([userId])
+}
+
+model EducationalSubmission {
+  id               String   @id @default(cuid())
+  name             String
+  phone            String
+  email            String
+  academicSubject  String
+  createdAt        DateTime @default(now())
+}
+
+model ShipSupplyOrder {
+  id                   String                 @id @default(cuid())
+  shopId               String
+  orderNumber          String
+  trackingNumber       String                 @unique
+  vesselName           String
+  vesselImo            String?
+  berthLocation        String?
+  customerId           String?
+  customerName         String
+  customerPhone        String?
+  customerEmail        String?
+  currentStage         ShipmentStage          @default(NEW)
+  notes                String?
+  eta                  DateTime?
+  etd                  DateTime?
+  deliveryDate         DateTime?
+  coordinatorId        String?
+  procurementOfficerId String?
+  warehouseOfficerId   String?
+  customsOfficerId     String?
+  deliveryOfficerId    String?
+  saleId               String?
+  totalAmount          Decimal?               @db.Decimal(12, 2)
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+
+  shop                 Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer             Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sale                 Sale?                  @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  coordinator          User?                  @relation("ShipmentCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
+  procurementOfficer   User?                  @relation("ShipmentProcurementOfficer", fields: [procurementOfficerId], references: [id], onDelete: SetNull)
+  warehouseOfficer     User?                  @relation("ShipmentWarehouseOfficer", fields: [warehouseOfficerId], references: [id], onDelete: SetNull)
+  customsOfficer       User?                  @relation("ShipmentCustomsOfficer", fields: [customsOfficerId], references: [id], onDelete: SetNull)
+  deliveryOfficer      User?                  @relation("ShipmentDeliveryOfficer", fields: [deliveryOfficerId], references: [id], onDelete: SetNull)
+  items                ShipSupplyOrderItem[]
+  stageLogs            ShipmentStageLog[]
+
+  @@index([shopId, currentStage])
+  @@index([trackingNumber])
+  @@index([vesselName])
+}
+
+model ShipSupplyOrderItem {
+  id                    String          @id @default(cuid())
+  orderId               String
+  productId             String?
+  itemName              String
+  category              String?
+  quantity              Decimal         @db.Decimal(12, 2)
+  unit                  String?
+  unitPrice             Decimal?        @db.Decimal(12, 2)
+  isExternallyProcured  Boolean         @default(false)
+  isPrepared            Boolean         @default(false)
+  notes                 String?
+  createdAt             DateTime        @default(now())
+
+  order                 ShipSupplyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product               Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+}
+
+model ShipmentStageLog {
+  id            String          @id @default(cuid())
+  orderId       String
+  fromStage     ShipmentStage?
+  toStage       ShipmentStage
+  performedById String?
+  notes         String?
+  referenceDoc  String?
+  createdAt     DateTime        @default(now())
+
+  order         ShipSupplyOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  performedBy   User?           @relation("StageLogPerformer", fields: [performedById], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+}
+

@@ -71,14 +71,14 @@ function monthKey(value: Date) {
 }
 
 function monthLabel(value: Date) {
-  return new Intl.DateTimeFormat('en-PH', {
+  return new Intl.DateTimeFormat('ar-EG', {
     year: 'numeric',
     month: 'short'
   }).format(value);
 }
 
 function dayLabel(value: Date) {
-  return new Intl.DateTimeFormat('en-PH', {
+  return new Intl.DateTimeFormat('ar-EG', {
     month: 'short',
     day: '2-digit'
   }).format(value);
@@ -86,7 +86,7 @@ function dayLabel(value: Date) {
 
 function hourLabel(hour: number) {
   const base = new Date(2026, 0, 1, hour, 0, 0, 0);
-  return new Intl.DateTimeFormat('en-PH', {
+  return new Intl.DateTimeFormat('ar-EG', {
     hour: 'numeric'
   }).format(base);
 }
@@ -265,7 +265,7 @@ export async function getReportFilterOptions(shopId: string) {
     }));
 
   return {
-    currencySymbol: settings?.currencySymbol ?? 'PHP ',
+    currencySymbol: settings?.currencySymbol ?? 'ج.م ',
     categories: categories.map((category) => ({ value: category.id, label: category.name })),
     products: products.map((product) => ({ value: product.id, label: product.name })),
     cashiers: cashierOptions,
